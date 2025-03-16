@@ -1,0 +1,40 @@
+FROM node:18-alpine as build
+
+WORKDIR /app
+
+# Apenas copia os arquivos de configuração de dependências primeiro
+COPY package*.json ./
+COPY yarn.lock ./
+
+# Instala as dependências
+RUN npm ci --silent
+
+# Copia o restante dos arquivos
+COPY public ./public
+COPY src ./src
+COPY .env* ./
+
+# A variável de ambiente será obtida do arquivo .env.production
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=${REACT_APP_API_URL:-https://api.speedfunnels.online/api}
+
+# Executa o build da aplicação
+RUN npm run build
+
+# Estágio de produção - usa uma imagem menor do nginx
+FROM nginx:alpine
+
+# Copia os arquivos de build da etapa anterior
+COPY --from=build /app/build /usr/share/nginx/html
+
+# Remover a configuração padrão do nginx
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Adicionar nossa configuração customizada
+COPY nginx.conf /etc/nginx/conf.d/
+
+# Expõe a porta 80
+EXPOSE 80
+
+# Executa o nginx em foreground
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,112 @@
+version: '3.8'
+
+# Definição de variáveis para fácil customização de domínios
+x-environment: &default-env
+  # Domínios para os diferentes serviços
+  MAIN_DOMAIN: speedfunnels.online
+  API_DOMAIN: api.speedfunnels.online
+  APP_DOMAIN: app.speedfunnels.online
+  # Lista de domínios permitidos para CORS
+  CORS_ORIGIN: "https://app.speedfunnels.online,https://speedfunnels.online,https://www.speedfunnels.online,http://localhost:3000"
+  # URL do frontend para redirecionamentos
+  FRONTEND_URL: "https://app.speedfunnels.online"
+
+services:
+  api:
+    image: marcussviniciusa/meta-ads-backend:latest
+    # Healthcheck simplificado
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    environment:
+      <<: *default-env
+      # Configurações do backend
+      PORT: 8080
+      NODE_ENV: production
+      # Configurações explícitas de CORS para garantir acesso correto
+      CORS_ENABLED: "true"
+      ACCESS_CONTROL_ALLOW_ORIGIN: "*"
+      CORS_ALLOWED_ORIGINS: "*"
+      CORS_ALLOWED_METHODS: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+      CORS_ALLOWED_HEADERS: "*"
+      # Configurações do banco de dados - conectando-se aos serviços existentes
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: meta_ads
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 4f4f49cc55e4ba2667873c2e8e97e1d6
+      # Configurações Redis - conectando-se aos serviços existentes
+      REDIS_HOST: 77.37.41.106
+      REDIS_PORT: 6380
+      REDIS_PASSWORD: Marcus1911Marcus
+      # Meta e Google integrations
+      META_APP_ID: 4190441111244279
+      META_APP_SECRET: 8ef5ee9f87897877584e8c7f27a2171c
+      GOOGLE_CLIENT_ID: 446046495796-ondcr66o2bq9toipem4n8oi9nv1rtua7.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: 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
+      # Credenciais admin
+      JWT_SECRET: 45aab33419d55426e0276078dd8b16eac990c163afab0f20645d976cd92c80eb96
+      SUPER_ADMIN_EMAIL: admin@speedfunnels.marcussviniciusa.cloud
+      SUPER_ADMIN_PASSWORD: Admin2025!
+      MIGRATION_SECRET_KEY: speedfunnels_migration_key
+    ports:
+      - "8080:8080"
+    networks:
+      - SpeedFunnelsNet
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.metaads-api.rule=Host(`api.speedfunnels.online`)"
+        - "traefik.http.routers.metaads-api.entrypoints=websecure"
+        - "traefik.http.services.metaads-backend.loadbalancer.server.port=8080"
+        # Configuração CORS simplificada
+        - "traefik.http.middlewares.metaads-cors.headers.accessControlAllowOriginList=*"
+        - "traefik.http.middlewares.metaads-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
+        - "traefik.http.middlewares.metaads-cors.headers.accessControlAllowHeaders=*"
+        - "traefik.http.middlewares.metaads-cors.headers.accessControlMaxAge=86400"
+        - "traefik.http.middlewares.metaads-cors.headers.addVaryHeader=true"
+        # Aplicando middlewares
+        - "traefik.http.routers.metaads-api.middlewares=metaads-cors@docker"
+        - "traefik.http.routers.metaads-api.tls.certresolver=letsencryptresolver"
+
+  frontend:
+    image: marcussviniciusa/meta-ads-frontend:v1.0.51
+    command: ["nginx", "-g", "daemon off;"]
+    stop_grace_period: 1m
+    environment:
+      <<: *default-env
+      NODE_ENV: production
+      REACT_APP_API_URL: "https://api.speedfunnels.online/api"
+      REACT_APP_FACEBOOK_APP_ID: 4190441111244279
+    networks:
+      - SpeedFunnelsNet
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        # Configuração para o domínio da aplicação (APP_DOMAIN)
+        - "traefik.http.routers.metaads-app.rule=Host(`app.speedfunnels.online`)"
+        - "traefik.http.routers.metaads-app.entrypoints=websecure"
+        - "traefik.http.routers.metaads-app.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.metaads-frontend.loadbalancer.server.port=80"
+        # Aplicando o mesmo middleware CORS que o API
+        - "traefik.http.routers.metaads-app.middlewares=metaads-cors@docker"
+        # Configuração para o domínio principal (MAIN_DOMAIN)
+        - "traefik.http.routers.metaads-main.rule=Host(`speedfunnels.online`)"
+        - "traefik.http.routers.metaads-main.entrypoints=websecure"
+        - "traefik.http.routers.metaads-main.service=metaads-frontend"
+        - "traefik.http.routers.metaads-main.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.metaads-main.middlewares=metaads-cors@docker"
+
+networks:
+  SpeedFunnelsNet:
+    external: true

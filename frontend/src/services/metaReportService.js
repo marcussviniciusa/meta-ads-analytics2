@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getToken } from './authService';
+import authService from './authService';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
@@ -14,7 +14,7 @@ const metaReportService = {
    */
   getAccountDetails: async (accountId) => {
     try {
-      const token = getToken();
+      const token = authService.getToken();
       const response = await axios.get(`${API_URL}/integrations/meta-ads/accounts/${accountId}`, {
         headers: {
           Authorization: `Bearer ${token}`
@@ -34,7 +34,7 @@ const metaReportService = {
    */
   getCampaigns: async (accountId) => {
     try {
-      const token = getToken();
+      const token = authService.getToken();
       const response = await axios.get(`${API_URL}/integrations/meta-ads/accounts/${accountId}/campaigns`, {
         headers: {
           Authorization: `Bearer ${token}`
@@ -57,7 +57,7 @@ const metaReportService = {
    */
   getAccountInsights: async (accountId, startDate, endDate, campaignId = null) => {
     try {
-      const token = getToken();
+      const token = authService.getToken();
       
       let url = `${API_URL}/integrations/meta-ads/accounts/${accountId}/insights?start_date=${startDate}&end_date=${endDate}`;
       
@@ -87,7 +87,7 @@ const metaReportService = {
    */
   getCampaignInsights: async (campaignId, startDate, endDate) => {
     try {
-      const token = getToken();
+      const token = authService.getToken();
       const response = await axios.get(
         `${API_URL}/integrations/meta-ads/campaigns/${campaignId}/insights?start_date=${startDate}&end_date=${endDate}`,
         {
@@ -110,7 +110,7 @@ const metaReportService = {
    */
   removeAdAccount: async (accountId) => {
     try {
-      const token = getToken();
+      const token = authService.getToken();
       const response = await axios.delete(
         `${API_URL}/integrations/meta-ads/accounts/${accountId}`,
         {

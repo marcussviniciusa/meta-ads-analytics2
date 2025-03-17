@@ -409,7 +409,19 @@ class MetaService {
    */
   async getCampaignInsights(userId, campaignId, dateRange) {
     try {
-      const token = await this.getUserToken(userId);
+      let token;
+      try {
+        token = await this.getUserToken(userId);
+      } catch (tokenError) {
+        console.error('Error getting user token:', tokenError.message);
+        // Repassar o erro de token para que seja tratado adequadamente no controlador
+        const tokenErrorMessage = tokenError.message;
+        const error = new Error('Falha ao recuperar token de acesso');
+        error.originalError = tokenErrorMessage;
+        error.code = 'TOKEN_ERROR';
+        throw error;
+      }
+
       const cacheKey = `campaign:${campaignId}:insights:${dateRange.start}-${dateRange.end}`;
       
       // Try to get from cache
@@ -524,21 +536,61 @@ class MetaService {
         return [];
       }
       
-      // Fetch from Meta API
-      const response = await axios.get(
-        `https://graph.facebook.com/${this.apiVersion}/${campaignId}/insights`,
-        {
-          params: {
-            access_token: token,
-            fields: 'impressions,clicks,spend,cpc,ctr,reach,frequency,unique_clicks,cost_per_unique_click',
-            time_range: JSON.stringify({
-              since: dateRange.start,
-              until: dateRange.end
-            }),
-            time_increment: 1
-          }
+      // Expanded fields for more detailed metrics
+      const fields = [
+        'campaign_name',
+        'campaign_id',
+        'impressions',
+        'clicks',
+        'spend',
+        'reach',
+        'frequency',
+        'cpm',
+        'cpc',
+        'ctr',
+        'cost_per_inline_link_click',
+        'cost_per_inline_post_engagement',
+        'conversion_values',
+        'conversions',
+        'objective',
+        'buying_type',
+        'inline_link_clicks',
+        'unique_clicks',
+        'unique_ctr',
+        'video_p25_watched_actions',
+        'video_p50_watched_actions',
+        'video_p75_watched_actions',
+        'video_p100_watched_actions',
+        'video_avg_time_watched_actions',
+        'website_ctr',
+        'quality_ranking',
+        'engagement_rate_ranking',
+        'conversion_rate_ranking'
+      ];
+
+      // Adicionar parâmetros avançados para insights aprofundados
+      const params = {
+        level: 'campaign',
+        filtering: JSON.stringify([{
+          field: 'campaign.id',
+          operator: 'IN',
+          value: [campaignId]
+        }]),
+        time_range: JSON.stringify({
+          since: dateRange.start,
+          until: dateRange.end
+        }),
+        time_increment: 1, // Dados diários para análise mais granular
+        fields: fields.join(',')
+      };
+
+      const url = `https://graph.facebook.com/${this.apiVersion}/${campaignId}/insights`;
+      const response = await axios.get(url, {
+        params,
+        headers: {
+          'Authorization': `Bearer ${token}`
         }
-      );
+      });
 
       const insights = response.data.data || [];
       

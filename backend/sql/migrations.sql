@@ -19,6 +19,42 @@ CREATE TABLE IF NOT EXISTS ad_accounts (
 CREATE INDEX IF NOT EXISTS idx_ad_accounts_user_id ON ad_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_ad_accounts_account_id ON ad_accounts(account_id);
 
+-- Garantindo que a tabela ad_accounts tenha todas as colunas necessárias
+ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS account_name VARCHAR(255);
+-- Verifica se já existe a coluna name, se não existir, renomeia account_name para name
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = 'ad_accounts' AND column_name = 'name'
+    ) THEN
+        -- A coluna name já existe, não faz nada
+        RAISE NOTICE 'Coluna name já existe na tabela ad_accounts';
+    ELSE
+        -- Verifica se account_name tem conteúdo
+        IF EXISTS (
+            SELECT FROM information_schema.columns 
+            WHERE table_name = 'ad_accounts' AND column_name = 'account_name'
+        ) THEN
+            -- Renomeia account_name para name
+            ALTER TABLE ad_accounts RENAME COLUMN account_name TO name;
+            RAISE NOTICE 'Coluna account_name renomeada para name';
+        ELSE
+            -- Cria a coluna name diretamente
+            ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+            RAISE NOTICE 'Coluna name adicionada à tabela ad_accounts';
+        END IF;
+    END IF;
+END
+$$;
+
+-- Adiciona outras colunas necessárias na tabela ad_accounts se não existirem
+ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE';
+ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS business_id VARCHAR(100);
+ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);
+ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS amount_spent NUMERIC(14, 2) DEFAULT 0;
+ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS account_status INTEGER DEFAULT 1;
+
 -- Criando campaigns
 CREATE TABLE IF NOT EXISTS campaigns (
   id SERIAL PRIMARY KEY,
@@ -145,6 +181,11 @@ CREATE TABLE IF NOT EXISTS user_integrations (
 CREATE INDEX IF NOT EXISTS idx_user_integrations_user_id ON user_integrations(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_integrations_source_id ON user_integrations(source_id);
 
+-- Adicionando coluna credentials para armazenar tokens e credenciais de API
+ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS credentials JSONB;
+CREATE INDEX IF NOT EXISTS idx_user_integrations_credentials ON user_integrations USING gin (credentials);
+COMMENT ON COLUMN user_integrations.credentials IS 'JSONB field to store API credentials and tokens';
+
 -- Criando google_tokens
 CREATE TABLE IF NOT EXISTS google_tokens (
   id SERIAL PRIMARY KEY,
@@ -163,6 +204,26 @@ CREATE TABLE IF NOT EXISTS google_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_google_tokens_user_id ON google_tokens(user_id);
+
+-- Criando tabela para propriedades do Google Analytics
+CREATE TABLE IF NOT EXISTS ga_properties (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  account_id VARCHAR(100) NOT NULL,
+  account_name VARCHAR(255),
+  property_id VARCHAR(100) NOT NULL,
+  property_name VARCHAR(255),
+  property_type VARCHAR(50),
+  parent_account VARCHAR(100),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE(user_id, property_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ga_properties_user_id ON ga_properties(user_id);
+CREATE INDEX IF NOT EXISTS idx_ga_properties_property_id ON ga_properties(property_id);
+CREATE INDEX IF NOT EXISTS idx_ga_properties_account_id ON ga_properties(account_id);
 
 -- Criando permissions se não existirem
 CREATE TABLE IF NOT EXISTS permissions (

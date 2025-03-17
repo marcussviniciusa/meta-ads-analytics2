@@ -69,29 +69,35 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=SpeedFunnelsNet"
-        # Roteamento para a API
+        # Roteamento para a API com suporte para ambos HTTP e HTTPS
         - "traefik.http.routers.meta-api.rule=Host(`api.speedfunnels.online`)"
-        - "traefik.http.routers.meta-api.entrypoints=websecure"
-        - "traefik.http.services.meta-api.loadbalancer.server.port=8080"
-        # Configuração CORS para permitir credenciais com origens específicas
-        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowOriginList=https://app.speedfunnels.online,https://speedfunnels.online,https://www.speedfunnels.online,http://localhost:3000"
-        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
-        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowHeaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
-        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowCredentials=true"
-        - "traefik.http.middlewares.meta-cors.headers.accessControlMaxAge=86400"
-        - "traefik.http.middlewares.meta-cors.headers.addVaryHeader=true"
+        - "traefik.http.routers.meta-api.entrypoints=web,websecure"
+        - "traefik.http.services.meta-api-service.loadbalancer.server.port=8080"
         
-        # Novo middleware de CORS específico para cada domínio
-        - "traefik.http.middlewares.cors-app.headers.accessControlAllowOrigin=https://app.speedfunnels.online"
-        - "traefik.http.middlewares.cors-app.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
-        - "traefik.http.middlewares.cors-app.headers.accessControlAllowHeaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
-        - "traefik.http.middlewares.cors-app.headers.accessControlAllowCredentials=true"
-        - "traefik.http.middlewares.cors-app.headers.accessControlMaxAge=86400"
-        - "traefik.http.middlewares.cors-app.headers.addVaryHeader=true"
+        # Configuração separada para HTTP e HTTPS
+        # Rota HTTP
+        - "traefik.http.routers.meta-api-http.rule=Host(`api.speedfunnels.online`)"
+        - "traefik.http.routers.meta-api-http.entrypoints=web"
+        - "traefik.http.routers.meta-api-http.service=meta-api-service"
         
-        # Aplicando middlewares específicos por domínio
-        - "traefik.http.routers.meta-api.middlewares=cors-app@docker"
-        - "traefik.http.routers.meta-api.tls.certresolver=letsencryptresolver"
+        # Rota HTTPS com TLS
+        - "traefik.http.routers.meta-api-https.rule=Host(`api.speedfunnels.online`)"
+        - "traefik.http.routers.meta-api-https.entrypoints=websecure"
+        - "traefik.http.routers.meta-api-https.service=meta-api-service"
+        - "traefik.http.routers.meta-api-https.tls=true"
+        - "traefik.http.routers.meta-api-https.tls.certresolver=letsencryptresolver"
+        
+        # Configuração CORS específica para o app.speedfunnels.online
+        - "traefik.http.middlewares.cors-api.headers.accessControlAllowOriginList=https://app.speedfunnels.online,https://speedfunnels.online,https://www.speedfunnels.online,http://localhost:3000"
+        - "traefik.http.middlewares.cors-api.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
+        - "traefik.http.middlewares.cors-api.headers.accessControlAllowHeaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
+        - "traefik.http.middlewares.cors-api.headers.accessControlAllowCredentials=true"
+        - "traefik.http.middlewares.cors-api.headers.accessControlMaxAge=86400"
+        - "traefik.http.middlewares.cors-api.headers.addVaryHeader=true"
+        
+        # Aplicando middleware de CORS para ambas as rotas
+        - "traefik.http.routers.meta-api-http.middlewares=cors-api@docker"
+        - "traefik.http.routers.meta-api-https.middlewares=cors-api@docker"
 
   frontend:
     image: marcussviniciusa/meta-ads-frontend:v1.0.51
@@ -100,6 +106,7 @@ services:
     environment:
       <<: *default-env
       NODE_ENV: production
+      # Suportando ambos HTTP e HTTPS
       REACT_APP_API_URL: "https://api.speedfunnels.online/api"
       REACT_APP_FACEBOOK_APP_ID: 4190441111244279
     networks:
@@ -114,19 +121,35 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=SpeedFunnelsNet"
-        # Roteamento para o frontend
-        - "traefik.http.routers.meta-frontend.rule=Host(`app.speedfunnels.online`)"
-        - "traefik.http.routers.meta-frontend.entrypoints=websecure"
-        - "traefik.http.services.meta-frontend.loadbalancer.server.port=80"
-        # Aplicando o middleware CORS
-        - "traefik.http.routers.meta-frontend.middlewares=meta-cors@docker"
-        - "traefik.http.routers.meta-frontend.tls.certresolver=letsencryptresolver"
+        
+        # Configuração separada para HTTP e HTTPS
+        # Rota HTTP para o frontend
+        - "traefik.http.routers.meta-frontend-http.rule=Host(`app.speedfunnels.online`)"
+        - "traefik.http.routers.meta-frontend-http.entrypoints=web"
+        - "traefik.http.routers.meta-frontend-http.service=meta-frontend-service"
+        
+        # Rota HTTPS para o frontend
+        - "traefik.http.routers.meta-frontend-https.rule=Host(`app.speedfunnels.online`)"
+        - "traefik.http.routers.meta-frontend-https.entrypoints=websecure"
+        - "traefik.http.routers.meta-frontend-https.service=meta-frontend-service"
+        - "traefik.http.routers.meta-frontend-https.tls=true"
+        - "traefik.http.routers.meta-frontend-https.tls.certresolver=letsencryptresolver"
+        
+        # Configuração explícita do serviço
+        - "traefik.http.services.meta-frontend-service.loadbalancer.server.port=80"
+        
         # Configuração para o domínio principal (MAIN_DOMAIN)
-        - "traefik.http.routers.meta-main.rule=Host(`speedfunnels.online`)"
-        - "traefik.http.routers.meta-main.entrypoints=websecure"
-        - "traefik.http.routers.meta-main.service=meta-frontend"
-        - "traefik.http.routers.meta-main.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.meta-main.middlewares=meta-cors@docker"
+        # HTTP
+        - "traefik.http.routers.meta-main-http.rule=Host(`speedfunnels.online`) || Host(`www.speedfunnels.online`)"
+        - "traefik.http.routers.meta-main-http.entrypoints=web"
+        - "traefik.http.routers.meta-main-http.service=meta-frontend-service"
+        
+        # HTTPS
+        - "traefik.http.routers.meta-main-https.rule=Host(`speedfunnels.online`) || Host(`www.speedfunnels.online`)"
+        - "traefik.http.routers.meta-main-https.entrypoints=websecure"
+        - "traefik.http.routers.meta-main-https.service=meta-frontend-service"
+        - "traefik.http.routers.meta-main-https.tls=true"
+        - "traefik.http.routers.meta-main-https.tls.certresolver=letsencryptresolver"
 
 networks:
   SpeedFunnelsNet:

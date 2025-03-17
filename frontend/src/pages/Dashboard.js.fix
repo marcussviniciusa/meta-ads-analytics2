@@ -1,0 +1,8 @@
+// Incluir o import da função fixGoogleAnalyticsData
+// Procure a linha de importação existente do gaFixUtils e adicione fixGoogleAnalyticsData
+
+// Na função fetchGoogleAnalyticsData, após logGADiagnostics, adicione:
+// Corrigir estrutura de dados para garantir que todos os campos necessários existam
+const fixedData = fixGoogleAnalyticsData(data);
+
+// Atualize todas as referências subsequentes para usar fixedData em vez de data

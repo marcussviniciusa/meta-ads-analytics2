@@ -770,7 +770,7 @@ class GoogleAnalyticsService {
         this.getReport(userId, propertyId, retentionConfig, userRole)
       ]);
       
-      // Log de diagnóstico para os insights detalhados
+      // Registrar detalhes dos resultados para diagnóstico
       console.log('Detailed insights summary:', {
         topPagesPresent: !!topPages,
         topPagesRowCount: topPages?.rows?.length || 0,

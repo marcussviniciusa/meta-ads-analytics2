@@ -28,8 +28,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { format, subDays } from 'date-fns';
@@ -47,7 +45,6 @@ import googleAnalyticsService from '../services/googleAnalyticsService';
 import { useAuth } from '../context/AuthContext';
 import { setupChartSizeLimits, getLineChartOptions, getPieChartOptions } from '../utils/chartUtils';
 import { hasValidSourceData, hasValidFunnelData, logGADiagnostics, fixGoogleAnalyticsData, transformTrafficSourceRows, transformTopPagesRows } from '../utils/gaFixUtils';
-import EnhancedMetaAnalytics from '../components/meta/EnhancedMetaAnalytics';
 
 // Registrar componentes do Chart.js
 ChartJS.register(
@@ -83,10 +80,6 @@ const Dashboard = () => {
   const [insightTab, setInsightTab] = useState(0);
   const [loadingFunnel, setLoadingFunnel] = useState(false);
   const [funnelError, setFunnelError] = useState('');
-  
-  // Estado para controlar os analytics avançados do Meta Ads
-  const [showEnhancedMetaAnalytics, setShowEnhancedMetaAnalytics] = useState(false);
-  const [metaAccountId, setMetaAccountId] = useState('');
 
   // Carregar contas de anúncios ao montar o componente
   useEffect(() => {
@@ -185,7 +178,6 @@ const Dashboard = () => {
   const fetchOverviewData = async () => {
     setLoading(true);
     setError('');
-    console.log('Iniciando fetchOverviewData...');
     
     try {
       const formattedStartDate = format(startDate, 'yyyy-MM-dd');
@@ -200,46 +192,9 @@ const Dashboard = () => {
       
       // Registra os dados reais obtidos no console para verificação
       console.log('Dados reais obtidos do Meta Ads:', data);
-      console.log('Estrutura do objeto Meta Ads:', JSON.stringify(data, null, 2));
       
       // Atualiza o estado com os dados reais
       setOverviewData(data);
-      
-      // Ativar explicitamente a visualização dos insights detalhados do Meta
-      setMetaAccountId(selectedAccount);
-      setShowEnhancedMetaAnalytics(true);
-      
-      // Log também do estado atual depois de atualizado
-      setTimeout(() => {
-        console.log('Estado overviewData após atualização:', overviewData);
-        console.log('Estado de metaAccountId e showEnhancedMetaAnalytics:', { 
-          metaAccountId: selectedAccount, 
-          showEnhancedMetaAnalytics: true 
-        });
-      }, 100);
-      
-      // Carregar dados adicionais para análises avançadas do Meta Ads
-      if (showEnhancedMetaAnalytics) {
-        try {
-          console.log('Carregando dados adicionais para análises avançadas do Meta Ads...');
-          
-          // Aqui podemos pré-carregar dados que serão usados pelos componentes avançados
-          // Isso é opcional, pois os componentes também podem carregar seus próprios dados
-          // quando necessário
-          
-          // Exemplo: Pré-carregar dados de insights de campanha
-          // const campaignInsights = await metaReportService.getAccountInsights(
-          //   selectedAccount,
-          //   formattedStartDate,
-          //   formattedEndDate
-          // );
-          // console.log('Dados de insights de campanha carregados:', campaignInsights);
-          
-        } catch (enhancedError) {
-          console.error('Erro ao carregar dados adicionais para análises avançadas:', enhancedError);
-          // Não interromper o fluxo principal se os dados adicionais falharem
-        }
-      }
     } catch (err) {
       setError('Não foi possível carregar os dados da conta. Tente novamente mais tarde.');
       console.error('Error fetching overview data:', err);
@@ -297,7 +252,7 @@ const Dashboard = () => {
         // Tentar buscar os dados de tráfego novamente de forma específica
         try {
           console.log('Tentando buscar dados de tráfego separadamente...');
-          const sourceData = await googleAnalyticsService.getChannelsReport(
+          const sourceData = await googleAnalyticsService.getTrafficSourceData(
             selectedGaProperty,
             formattedStartDate,
             formattedEndDate
@@ -362,23 +317,12 @@ const Dashboard = () => {
       });
       
       // Verificar se os dados de topPages estão presentes e válidos
-      if (!data.topPages || !data.topPages.rows || data.topPages.rows.length === 0) {
+      if (!data.topPages || !data.topPages.rows) {
         console.warn('Dados de páginas mais visualizadas ausentes ou inválidos:', 
                      { topPages: data.topPages });
         
-        // Criar dados simulados para evitar problemas de renderização
-        const samplePages = [
-          { pagePath: '/pagina-inicial', views: 120, users: 85, avgTime: 45.2 },
-          { pagePath: '/produtos', views: 98, users: 72, avgTime: 32.7 },
-          { pagePath: '/sobre', views: 45, users: 38, avgTime: 22.3 },
-          { pagePath: '/contato', views: 32, users: 29, avgTime: 18.5 },
-          { pagePath: '/blog', views: 67, users: 54, avgTime: 38.9 }
-        ];
-        
-        // Garantir que haverá um objeto válido com dados simulados
+        // Garantir que haverá um objeto válido
         data.topPages = data.topPages || { rows: [] };
-        data.processedTopPages = samplePages;
-        console.log('Usando dados simulados para páginas mais visualizadas devido à ausência de dados reais');
       } else if (data.topPages.rows.length > 0) {
         // Transformar dados das páginas para um formato mais amigável
         data.processedTopPages = transformTopPagesRows(data.topPages.rows);
@@ -934,76 +878,148 @@ const Dashboard = () => {
     };
   };
 
-  // Configuração dos limites para os gráficos no carregamento inicial do componente
+  // Adicionar função auxiliar para lidar com o redimensionamento de canvas
   useEffect(() => {
-    // Importar a configuração dos limites para o Chart.js
-    import('../utils/chartUtils').then(({ setupChartSizeLimits }) => {
-      // Aplica as configurações globais do Chart.js para limitar tamanho
-      setupChartSizeLimits();
-      console.log('Configuração de limites de canvas aplicada ao Chart.js');
-    }).catch(error => {
-      console.error('Erro ao configurar limites para gráficos:', error);
-    });
-  }, []);
-  
-  // Efeito para lidar com o redimensionamento de janela
-  useEffect(() => {
-    // Função para ajustar os gráficos quando a janela for redimensionada
     const handleResize = () => {
-      // Forçar o Chart.js a recalcular os tamanhos dos gráficos
-      const chartElements = document.querySelectorAll('canvas');
-      chartElements.forEach(canvas => {
-        if (canvas.__chartjs__ && canvas.__chartjs__.length > 0) {
-          const chart = canvas.__chartjs__[0];
-          if (chart && typeof chart.resize === 'function') {
-            chart.resize();
+      const MAX_WIDTH = 2000;
+      const MAX_HEIGHT = 2000;
+      
+      // Seleciona todos os elementos canvas na página
+      const canvasElements = document.querySelectorAll('canvas');
+      
+      canvasElements.forEach(canvas => {
+        // Verifica se o canvas está ultrapassando os limites
+        if (canvas.width > MAX_WIDTH || canvas.height > MAX_HEIGHT) {
+          console.log('Canvas redimensionado para evitar erro de tamanho máximo', 
+                      { width: canvas.width, height: canvas.height, 
+                        newWidth: Math.min(canvas.width, MAX_WIDTH), 
+                        newHeight: Math.min(canvas.height, MAX_HEIGHT) });
+          
+          // Redimensiona o canvas para não ultrapassar os limites
+          canvas.width = Math.min(canvas.width, MAX_WIDTH);
+          canvas.height = Math.min(canvas.height, MAX_HEIGHT);
+          
+          // Também ajustar o elemento pai para evitar problemas de layout
+          if (canvas.parentElement) {
+            canvas.parentElement.style.maxWidth = `${MAX_WIDTH}px`;
+            canvas.parentElement.style.maxHeight = `${MAX_HEIGHT}px`;
           }
         }
       });
     };
+
+    // Executar imediatamente para lidar com gráficos já renderizados
+    handleResize();
     
-    // Adicionar event listener para resize
-    window.addEventListener('resize', handleResize);
+    // Configurar verificação periódica a cada 2 segundos
+    const interval = setInterval(handleResize, 2000);
     
-    // Limpar event listener quando componente desmontar
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
+    // Limpar intervalo quando o componente for desmontado
+    return () => clearInterval(interval);
   }, []);
-  
-  // Define opções padrão para todos os gráficos com tamanho adequado
+
   useEffect(() => {
-    // Assegurar que os conteineres dos gráficos tenham altura e largura definidas
-    const chartContainers = document.querySelectorAll('.chart-container');
-    chartContainers.forEach(container => {
-      if (!container.style.height) {
-        container.style.height = '400px';
+    // Definir tamanhos máximos
+    const MAX_CANVAS_DIMENSION = 2000;
+    const MAX_CANVAS_AREA = 3000000; // ~1732x1732 pixels
+    
+    // Função para verificar e redimensionar canvas
+    const resizeCanvasIfNeeded = (canvas) => {
+      if (!canvas) return;
+      
+      // Verificar se as dimensões excedem os limites
+      if (canvas.width > MAX_CANVAS_DIMENSION || 
+          canvas.height > MAX_CANVAS_DIMENSION ||
+          canvas.width * canvas.height > MAX_CANVAS_AREA) {
+        
+        console.log('Redimensionando canvas para evitar erro de tamanho máximo', 
+                   { width: canvas.width, height: canvas.height });
+        
+        // Calcular novo tamanho mantendo proporção
+        let newWidth = canvas.width;
+        let newHeight = canvas.height;
+        
+        if (canvas.width > MAX_CANVAS_DIMENSION) {
+          newWidth = MAX_CANVAS_DIMENSION;
+          newHeight = (newWidth * canvas.height) / canvas.width;
+        }
+        
+        if (newHeight > MAX_CANVAS_DIMENSION) {
+          newHeight = MAX_CANVAS_DIMENSION;
+          newWidth = (newHeight * canvas.width) / canvas.height;
+        }
+        
+        // Se ainda exceder a área máxima, reduzir proporcionalmente
+        if (newWidth * newHeight > MAX_CANVAS_AREA) {
+          const scaleFactor = Math.sqrt(MAX_CANVAS_AREA / (newWidth * newHeight));
+          newWidth = Math.floor(newWidth * scaleFactor);
+          newHeight = Math.floor(newHeight * scaleFactor);
+        }
+        
+        // Aplicar novos tamanhos
+        canvas.width = newWidth;
+        canvas.height = newHeight;
+        
+        // Ajustar contêiner pai
+        if (canvas.parentElement) {
+          canvas.parentElement.style.maxWidth = `${newWidth}px`;
+          canvas.parentElement.style.maxHeight = `${newHeight}px`;
+        }
       }
-      if (!container.style.width) {
-        container.style.width = '100%';
+    };
+    
+    // Observar mudanças em todos os elementos canvas na página
+    const canvasObserver = new MutationObserver((mutations) => {
+      // Processar todas as mutações que foram detectadas
+      for (const mutation of mutations) {
+        // Verificar novos nós adicionados
+        if (mutation.addedNodes.length) {
+          mutation.addedNodes.forEach(node => {
+            // Verificar se o novo nó é um canvas
+            if (node.tagName === 'CANVAS') {
+              resizeCanvasIfNeeded(node);
+            } else if (node.querySelectorAll) {
+              // Verificar dentro do nó se existem elementos canvas
+              node.querySelectorAll('canvas').forEach(canvas => {
+                resizeCanvasIfNeeded(canvas);
+              });
+            }
+          });
+        }
+        
+        // Verificar mudanças de atributos em canvas existentes
+        if (mutation.type === 'attributes' && 
+            mutation.target.tagName === 'CANVAS' && 
+            (mutation.attributeName === 'width' || mutation.attributeName === 'height')) {
+          resizeCanvasIfNeeded(mutation.target);
+        }
       }
     });
     
-    // Definir estilos CSS para melhorar a exibição de gráficos
-    const style = document.createElement('style');
-    style.textContent = `
-      .chart-container {
-        position: relative;
-        height: 400px;
-        width: 100%;
-        max-height: 600px;
-      }
-      canvas.chartjs-render-monitor {
-        max-height: 600px !important;
-      }
-    `;
-    document.head.appendChild(style);
+    // Configurar o observador para monitorar todo o documento
+    canvasObserver.observe(document.body, {
+      childList: true,      // Observar adições/remoções de filhos
+      attributes: true,     // Observar mudanças em atributos
+      subtree: true,        // Observar toda a árvore de elementos
+      attributeFilter: ['width', 'height'] // Apenas observar mudanças nestes atributos
+    });
     
-    // Limpar o estilo ao desmontar
+    // Verificar canvas existentes imediatamente
+    document.querySelectorAll('canvas').forEach(canvas => {
+      resizeCanvasIfNeeded(canvas);
+    });
+    
+    // Verificar periodicamente (backup)
+    const intervalCheck = setInterval(() => {
+      document.querySelectorAll('canvas').forEach(canvas => {
+        resizeCanvasIfNeeded(canvas);
+      });
+    }, 2000);
+    
+    // Limpar observador e intervalo
     return () => {
-      if (document.head.contains(style)) {
-        document.head.removeChild(style);
-      }
+      canvasObserver.disconnect();
+      clearInterval(intervalCheck);
     };
   }, []);
 
@@ -1124,12 +1140,7 @@ const Dashboard = () => {
               select
               label="Conta de Anúncios"
               value={selectedAccount}
-              onChange={(e) => {
-                setSelectedAccount(e.target.value);
-                setMetaAccountId(e.target.value);
-                setShowEnhancedMetaAnalytics(true);
-                // fetchOverviewData will be triggered by the useEffect hook
-              }}
+              onChange={(e) => setSelectedAccount(e.target.value)}
               fullWidth
               variant="outlined"
               disabled={loading || adAccounts.length === 0}
@@ -1445,25 +1456,11 @@ const Dashboard = () => {
           <Paper sx={{ p: 3, mb: 4, borderTop: '4px solid #1877F2' }}>
             <Grid container spacing={3}>
               <Grid item xs={12}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <img src="/images/meta-logo.svg" alt="Meta" width="30" height="30" style={{ marginRight: '10px' }} />
-                    <Typography variant="h6" gutterBottom sx={{ color: '#1877F2', fontWeight: 'bold', mb: 0 }}>
-                      Meta Ads - Indicadores de Desempenho
-                    </Typography>
-                  </Box>
-                  {metaAccountId && (
-                    <Button
-                      variant={showEnhancedMetaAnalytics ? "contained" : "outlined"}
-                      color="primary"
-                      size="small"
-                      startIcon={showEnhancedMetaAnalytics ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                      onClick={() => setShowEnhancedMetaAnalytics(!showEnhancedMetaAnalytics)}
-                      sx={{ ml: 2 }}
-                    >
-                      {showEnhancedMetaAnalytics ? "Ocultar Análise Avançada" : "Mostrar Análise Avançada"}
-                    </Button>
-                  )}
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <img src="/images/meta-logo.svg" alt="Meta" width="30" height="30" style={{ marginRight: '10px' }} />
+                  <Typography variant="h6" gutterBottom sx={{ color: '#1877F2', fontWeight: 'bold', mb: 0 }}>
+                    Meta Ads - Indicadores de Desempenho
+                  </Typography>
                 </Box>
                 <Divider sx={{ mb: 3 }} />
               </Grid>
@@ -1475,7 +1472,7 @@ const Dashboard = () => {
                     Impressões
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.impressions || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.impressoes || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1488,7 +1485,7 @@ const Dashboard = () => {
                     Alcance
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.reach || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.alcance || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1501,7 +1498,7 @@ const Dashboard = () => {
                     Total de Cliques
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.clicks || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.cliquesTodos || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1514,7 +1511,7 @@ const Dashboard = () => {
                     Cliques no Link
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.link_clicks || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.cliquesLink || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1527,7 +1524,7 @@ const Dashboard = () => {
                     CTR (Taxa de Cliques)
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {(overviewData?.summary?.ctr || 0).toFixed(2)}%
+                    {(funnelData?.metaAdsMetrics?.ctr || 0).toFixed(2)}%
                   </Typography>
                 </CardContent>
               </Card>
@@ -1540,7 +1537,7 @@ const Dashboard = () => {
                     Reações no Post
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.post_reactions || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.reacoesPost || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1559,7 +1556,7 @@ const Dashboard = () => {
                     ThruPlays
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.video_thruplay || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.thruPlays || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1572,7 +1569,7 @@ const Dashboard = () => {
                     Visualizações de Página de Destino
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.landing_page_views || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.visualizacoesPaginaDestino || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1585,7 +1582,7 @@ const Dashboard = () => {
                     Conversões
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.conversions || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.conversoes || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1598,7 +1595,7 @@ const Dashboard = () => {
                     Taxa de Conversão
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {(overviewData?.summary?.conversion_rate || 0).toFixed(2)}%
+                    {(funnelData?.metaAdsMetrics?.taxaConversao || 0).toFixed(2)}%
                   </Typography>
                 </CardContent>
               </Card>
@@ -1611,7 +1608,7 @@ const Dashboard = () => {
                     Leads
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatNumber(overviewData?.summary?.leads || 0)}
+                    {formatNumber(funnelData?.metaAdsMetrics?.leads || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1630,7 +1627,7 @@ const Dashboard = () => {
                     CPC (Custo por Clique)
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatCurrency(overviewData?.summary?.cpc || 0)}
+                    {formatCurrency(funnelData?.metaAdsMetrics?.cpc || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1643,7 +1640,7 @@ const Dashboard = () => {
                     CPM (Custo por Mil Impressões)
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatCurrency(overviewData?.summary?.cpm || 0)}
+                    {formatCurrency(funnelData?.metaAdsMetrics?.cpm || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1656,7 +1653,7 @@ const Dashboard = () => {
                     Custo por Resultado
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatCurrency(overviewData?.summary?.cost_per_result || 0)}
+                    {formatCurrency(funnelData?.metaAdsMetrics?.custoPorResultado || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1669,7 +1666,7 @@ const Dashboard = () => {
                     Custo por Visualização de Vídeo
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatCurrency(overviewData?.summary?.cost_per_video_view || 0)}
+                    {formatCurrency(funnelData?.metaAdsMetrics?.custoPorVisualizacaoVideo || 0)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1682,55 +1679,10 @@ const Dashboard = () => {
                     Custo por Conversão
                   </Typography>
                   <Typography variant="h5" component="div">
-                    {formatCurrency(overviewData?.summary?.cost_per_conversion || 0)}
+                    {formatCurrency(funnelData?.metaAdsMetrics?.custoPorConversao || 0)}
                   </Typography>
                 </CardContent>
               </Card>
-            </Grid>
-            
-            {/* Enhanced Meta Analytics Section */}
-            <Grid item xs={12}>
-              <Box sx={{ mt: 4, mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                    Análise Avançada de Campanhas Meta Ads
-                  </Typography>
-                  {!showEnhancedMetaAnalytics && (
-                    <Button 
-                      variant="contained" 
-                      color="primary"
-                      size="small"
-                      onClick={() => {
-                        setMetaAccountId(selectedAccount);
-                        setShowEnhancedMetaAnalytics(true);
-                        console.log('Ativando insights detalhados manualmente:', {selectedAccount});
-                      }}
-                    >
-                      Exibir Insights Detalhados
-                    </Button>
-                  )}
-                </Box>
-                <Divider sx={{ mb: 3 }} />
-                
-                {showEnhancedMetaAnalytics && metaAccountId ? (
-                  // Forçando exibição do componente com o console.log para diagnosticar
-                  console.log('Renderizando EnhancedMetaAnalytics com:', {metaAccountId, startDate, endDate}) || 
-                  <EnhancedMetaAnalytics 
-                    accountId={metaAccountId} 
-                    dateRange={{
-                      startDate: startDate,
-                      endDate: endDate
-                    }}
-                  />
-                ) : (
-                  <Box sx={{ p: 3, textAlign: 'center' }}>
-                    <CircularProgress size={30} sx={{ mb: 2 }} />
-                    <Typography variant="body1">
-                      Carregando insights detalhados das campanhas Meta Ads...
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
             </Grid>
           </Grid>
         </Paper>
@@ -2281,15 +2233,13 @@ const Dashboard = () => {
   const renderFunnelSection = () => {
     // Log de diagnóstico
     console.log("Renderizando seção de funil, dados disponíveis:", 
-               funnelData ? `Sim (topPages: ${funnelData.topPages ? "Sim" : "Não"}, processedTopPages: ${funnelData.processedTopPages ? "Sim" : "Não"})` : "Não");
-               
+                 funnelData ? `Sim (topPages: ${funnelData.topPages ? "Sim" : "Não"})` : "Não");
+                 
     // Verificar dados detalhados para diagnóstico
-    if (funnelData) {
-      console.log("Estrutura de dados do funil:", {
-        hasTopPages: !!funnelData.topPages,
-        topPagesRowCount: funnelData.topPages?.rows ? funnelData.topPages.rows.length : 0,
-        hasProcessedTopPages: !!funnelData.processedTopPages,
-        processedTopPagesCount: funnelData.processedTopPages ? funnelData.processedTopPages.length : 0
+    if (funnelData && funnelData.topPages) {
+      console.log("Estrutura de topPages:", {
+        hasRows: !!funnelData.topPages.rows,
+        rowCount: funnelData.topPages.rows ? funnelData.topPages.rows.length : 0
       });
     }
     
@@ -2324,46 +2274,13 @@ const Dashboard = () => {
     return (
       <Box sx={{ mt: 2 }}>
         {/* Top Pages Section */}
-        <Typography variant="h6" gutterBottom>
+        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
           Páginas Mais Visualizadas
         </Typography>
-        <Card variant="outlined">
+        <Card variant="outlined" sx={{ mb: 3 }}>
           <CardContent>
             <Grid container spacing={2}>
-              {funnelData.processedTopPages && funnelData.processedTopPages.length > 0 ? (
-                <Grid item xs={12}>
-                  <Box sx={{ height: 300, overflowY: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: 'left', padding: '8px', borderBottom: '1px solid #ddd' }}>Página</th>
-                          <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>Visualizações</th>
-                          <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>Usuários</th>
-                          <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>Tempo Médio (seg)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {funnelData.processedTopPages.map((page, index) => (
-                          <tr key={index} style={{ background: index % 2 === 0 ? '#f9f9f9' : 'white' }}>
-                            <td style={{ padding: '8px', borderBottom: '1px solid #ddd' }}>
-                              {page.pagePath}
-                            </td>
-                            <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
-                              {page.views.toLocaleString()}
-                            </td>
-                            <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
-                              {page.users.toLocaleString()}
-                            </td>
-                            <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
-                              {page.avgTime.toFixed(1)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Box>
-                </Grid>
-              ) : funnelData.topPages && funnelData.topPages.rows && funnelData.topPages.rows.length > 0 ? (
+              {funnelData.topPages && funnelData.topPages.rows && funnelData.topPages.rows.length > 0 ? (
                 <Grid item xs={12}>
                   <Box sx={{ height: 300, overflowY: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -2563,46 +2480,27 @@ const Dashboard = () => {
                 </thead>
                 <tbody>
                   {gaData.sourceData.rows.map((row, index) => {
-                    // Verificar se a linha tem a estrutura esperada para o novo formato
-                    if (!row.dimensionValues || !row.dimensionValues[0] || 
-                        !row.metricValues || !row.metricValues[0]) {
+                    // Verificar se a linha tem a estrutura esperada
+                    if (!row.dimensionValues || row.dimensionValues.length < 2 || 
+                        !row.metricValues || row.metricValues.length < 4) {
                       console.warn('Linha com estrutura inválida:', row);
                       return null;
                     }
                     
-                    // Extrair valores com a nova estrutura (apenas canal e sessões)
-                    const channel = row.dimensionValues[0].value || 'Não definido';
-                    const sessions = parseInt(row.metricValues[0].value) || 0;
-                    const users = Math.round(sessions * 0.8); // Estimativa baseada em sessões
-                    
-                    // Determinar a fonte com base no canal
-                    let source = 'Outros';
-                    let medium = 'Orgânico';
-                    
-                    if (channel.toLowerCase().includes('organic')) {
-                      source = 'Pesquisa Orgânica';
-                    } else if (channel.toLowerCase().includes('direct')) {
-                      source = 'Tráfego Direto';
-                    } else if (channel.toLowerCase().includes('referral')) {
-                      source = 'Sites de Referência';
-                    } else if (channel.toLowerCase().includes('social')) {
-                      source = 'Mídias Sociais';
-                    } else if (channel.toLowerCase().includes('paid') || 
-                               channel.toLowerCase().includes('cpc') || 
-                               channel.toLowerCase().includes('display')) {
-                      source = 'Anúncios Pagos';
-                      medium = 'Pago';
-                    } else if (channel.toLowerCase().includes('email')) {
-                      source = 'Email Marketing';
-                    }
+                    const source = row.dimensionValues[0].value;
+                    const medium = row.dimensionValues[1].value;
+                    const users = parseInt(row.metricValues[0].value);
+                    const sessions = parseInt(row.metricValues[1].value);
+                    const conversions = parseInt(row.metricValues[2].value) || 0;
+                    const engagementRate = parseFloat(row.metricValues[3].value) * 100;
                     
                     return (
                       <tr key={index} style={{ background: index % 2 === 0 ? '#f9f9f9' : 'white' }}>
                         <td style={{ padding: '8px', borderBottom: '1px solid #ddd' }}>
-                          {source}
+                          {source || '(not set)'}
                         </td>
                         <td style={{ padding: '8px', borderBottom: '1px solid #ddd' }}>
-                          {channel} ({medium})
+                          {medium || '(not set)'}
                         </td>
                         <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
                           {users.toLocaleString()}
@@ -2611,10 +2509,10 @@ const Dashboard = () => {
                           {sessions.toLocaleString()}
                         </td>
                         <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
-                          {0} {/* Não temos dados de conversão */}
+                          {conversions.toLocaleString()}
                         </td>
                         <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
-                          {0}% {/* Não temos dados de taxa de engajamento */}
+                          {engagementRate.toFixed(1)}%
                         </td>
                       </tr>
                     );
@@ -2764,13 +2662,12 @@ const Dashboard = () => {
                   </Typography>
                   
                   {usersChartData && (
-                    <Box className="chart-container" sx={{ height: 300, width: '100%', maxHeight: 400, position: 'relative' }}>
+                    <Box sx={{ height: 400 }}>
                       <Line 
                         data={usersChartData} 
                         options={{
                           responsive: true,
-                          maintainAspectRatio: true,
-                          aspectRatio: 2,
+                          maintainAspectRatio: false,
                           scales: {
                             y: {
                               type: 'linear',
@@ -3038,12 +2935,7 @@ const Dashboard = () => {
                 select
                 label="Conta"
                 value={selectedAccount}
-                onChange={(e) => {
-                  setSelectedAccount(e.target.value);
-                  setMetaAccountId(e.target.value);
-                  setShowEnhancedMetaAnalytics(true);
-                  // fetchOverviewData will be triggered by the useEffect hook
-                }}
+                onChange={(e) => setSelectedAccount(e.target.value)}
                 variant="outlined"
                 fullWidth
                 size="small"
@@ -3201,13 +3093,12 @@ const Dashboard = () => {
                       </Typography>
                       
                       {dailySpendData ? (
-                        <Box className="chart-container" sx={{ height: 300, width: '100%', maxHeight: 400, position: 'relative' }}>
+                        <Box sx={{ height: 300, maxWidth: '100%' }}>
                           <Line 
                             data={dailySpendData} 
                             options={{
                               responsive: true,
-                              maintainAspectRatio: true,
-                              aspectRatio: 2,
+                              maintainAspectRatio: false,
                               animation: {
                                 duration: 500,
                               },
@@ -3248,13 +3139,12 @@ const Dashboard = () => {
                       </Typography>
                       
                       {performanceData ? (
-                        <Box className="chart-container" sx={{ height: 300, width: '100%', maxHeight: 400, position: 'relative' }}>
+                        <Box sx={{ height: 300, maxWidth: '100%' }}>
                           <Line 
                             data={performanceData} 
                             options={{
                               responsive: true,
-                              maintainAspectRatio: true,
-                              aspectRatio: 2,
+                              maintainAspectRatio: false,
                               animation: {
                                 duration: 500,
                               },
@@ -3303,13 +3193,12 @@ const Dashboard = () => {
                       </Typography>
                       
                       {spendDistributionData ? (
-                        <Box className="chart-container" sx={{ height: 300, width: '100%', maxHeight: 400, position: 'relative' }}>
+                        <Box sx={{ height: 300, maxWidth: '100%' }}>
                           <Pie 
                             data={spendDistributionData} 
                             options={{
                               responsive: true,
-                              maintainAspectRatio: true,
-                              aspectRatio: 1.5,
+                              maintainAspectRatio: false,
                               cutout: '30%',
                               plugins: {
                                 legend: {
@@ -3496,8 +3385,8 @@ const Dashboard = () => {
               // Reajustar contêiner pai
               const parent = canvas.parentElement;
               if (parent) {
-                parent.style.maxWidth = `${MAX_DIMENSION}px`;
-                parent.style.maxHeight = `${MAX_DIMENSION}px`;
+                parent.style.maxWidth = `${canvas.width}px`;
+                parent.style.maxHeight = `${canvas.height}px`;
               }
             }
           });
@@ -3590,14 +3479,11 @@ const Dashboard = () => {
                             </Typography>
                             <Divider sx={{ mb: 2 }} />
                             {createDailySpendChartData() && (
-                              <Box className="chart-container" sx={{ height: 250, width: '100%', maxHeight: 300, position: 'relative' }}>
-                                <Line 
-                                  data={createDailySpendChartData()} 
-                                  options={{
-                                    responsive: true,
-                                    maintainAspectRatio: true,
-                                    aspectRatio: 2,
-                                    interaction: {
+                              <Line 
+                                data={createDailySpendChartData()} 
+                                options={{
+                                  responsive: true,
+                                  interaction: {
                                     mode: 'index',
                                     intersect: false,
                                   },
@@ -3618,7 +3504,6 @@ const Dashboard = () => {
                                   }
                                 }}
                               />
-                              </Box>
                             )}
                           </Paper>
                         </Grid>
@@ -3630,14 +3515,12 @@ const Dashboard = () => {
                             </Typography>
                             <Divider sx={{ mb: 2 }} />
                             {createSpendDistributionChartData() && (
-                              <Box className="chart-container" sx={{ height: 250, width: '100%', maxHeight: 300, position: 'relative' }}>
-                                <Pie 
-                                  data={createSpendDistributionChartData()} 
-                                  options={{
-                                    responsive: true,
-                                    maintainAspectRatio: true,
-                                    aspectRatio: 1.5,
-                                    plugins: {
+                              <Pie 
+                                data={createSpendDistributionChartData()} 
+                                options={{
+                                  responsive: true,
+                                  maintainAspectRatio: false,
+                                  plugins: {
                                     tooltip: {
                                       callbacks: {
                                         label: function(context) {
@@ -3659,7 +3542,6 @@ const Dashboard = () => {
                                   }
                                 }}
                               />
-                              </Box>
                             )}
                           </Paper>
                         </Grid>
@@ -3671,13 +3553,10 @@ const Dashboard = () => {
                             </Typography>
                             <Divider sx={{ mb: 2 }} />
                             {createPerformanceChartData() && (
-                              <Box className="chart-container" sx={{ height: 250, width: '100%', maxHeight: 300, position: 'relative' }}>
-                                <Line 
-                                  data={createPerformanceChartData()} 
-                                  options={{
-                                    responsive: true,
-                                    maintainAspectRatio: true,
-                                    aspectRatio: 2,
+                              <Line 
+                                data={createPerformanceChartData()} 
+                                options={{
+                                  responsive: true,
                                   interaction: {
                                     mode: 'index',
                                     intersect: false,
@@ -3704,7 +3583,6 @@ const Dashboard = () => {
                                   }
                                 }}
                               />
-                              </Box>
                             )}
                           </Paper>
                         </Grid>

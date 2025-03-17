@@ -1,0 +1,71 @@
+INSTRUÇÕES PARA ATUALIZAÇÃO MANUAL
+
+Para aplicar as correções à função renderFunnelSection no Dashboard.js, siga estas instruções:
+
+1. Abra o arquivo:
+   frontend/src/pages/Dashboard.js
+
+2. Localize a função renderFunnelSection (aproximadamente na linha 2233).
+
+3. Substitua os logs de diagnóstico no início da função por:
+```javascript
+console.log("Renderizando seção de funil, dados disponíveis:", 
+           funnelData ? `Sim (topPages: ${funnelData.topPages ? "Sim" : "Não"}, processedTopPages: ${funnelData.processedTopPages ? "Sim" : "Não"})` : "Não");
+           
+// Verificar dados detalhados para diagnóstico
+if (funnelData) {
+  console.log("Estrutura de dados do funil:", {
+    hasTopPages: !!funnelData.topPages,
+    topPagesRowCount: funnelData.topPages?.rows ? funnelData.topPages.rows.length : 0,
+    hasProcessedTopPages: !!funnelData.processedTopPages,
+    processedTopPagesCount: funnelData.processedTopPages ? funnelData.processedTopPages.length : 0
+  });
+}
+```
+
+4. Localize a parte que começa o renderização das páginas (aproximadamente linha 2282) que atualmente é:
+```javascript
+{funnelData.topPages && funnelData.topPages.rows && funnelData.topPages.rows.length > 0 ? (
+```
+
+5. Substitua por este código que prioriza o uso dos dados processados:
+```javascript
+{funnelData.processedTopPages && funnelData.processedTopPages.length > 0 ? (
+  <Grid item xs={12}>
+    <Box sx={{ height: 300, overflowY: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '8px', borderBottom: '1px solid #ddd' }}>Página</th>
+            <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>Visualizações</th>
+            <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>Usuários</th>
+            <th style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>Tempo Médio (seg)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {funnelData.processedTopPages.map((page, index) => (
+            <tr key={index} style={{ background: index % 2 === 0 ? '#f9f9f9' : 'white' }}>
+              <td style={{ padding: '8px', borderBottom: '1px solid #ddd' }}>
+                {page.pagePath}
+              </td>
+              <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
+                {page.views.toLocaleString()}
+              </td>
+              <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
+                {page.users.toLocaleString()}
+              </td>
+              <td style={{ textAlign: 'right', padding: '8px', borderBottom: '1px solid #ddd' }}>
+                {page.avgTime.toFixed(1)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Box>
+  </Grid>
+) : funnelData.topPages && funnelData.topPages.rows && funnelData.topPages.rows.length > 0 ? (
+```
+
+6. Mantenha o restante do código original como fallback.
+
+Após fazer estas alterações, salve o arquivo e reinicie o servidor.

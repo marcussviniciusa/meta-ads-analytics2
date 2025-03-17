@@ -1,0 +1,16 @@
+// Na função getDetailedInsights, antes do return, adicione logs de diagnóstico:
+console.log('Detailed insights summary:', {
+  topPagesPresent: !!topPages,
+  topPagesRowCount: topPages?.rows?.length || 0,
+  deviceDataPresent: !!deviceData,
+  deviceDataRowCount: deviceData?.rows?.length || 0,
+  retentionDataPresent: !!retentionData,
+  retentionDataRowCount: retentionData?.rows?.length || 0
+});
+
+// Garantir que retorne objetos válidos mesmo em caso de falha:
+return {
+  topPages: topPages || { rows: [] },
+  deviceData: deviceData || { rows: [] },
+  retentionData: retentionData || { rows: [] }
+};

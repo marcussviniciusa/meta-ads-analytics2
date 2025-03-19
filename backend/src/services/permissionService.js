@@ -131,23 +131,44 @@ class PermissionService {
     const client = await this.pgPool.connect();
     
     try {
+      console.log(`[PermissionService] Buscando propriedades GA com permissão para usuário ${userId}`);
+      
       // Super admins e admins têm acesso total
-      const userRole = await this.getUserRole(userId);
-      if (userRole === 'super_admin' || userRole === 'admin') {
-        // Retornar todas as propriedades do GA
-        const result = await client.query(
-          'SELECT DISTINCT property_id FROM ga_properties'
-        );
-        return result.rows.map(row => row.property_id);
+      try {
+        const userRole = await this.getUserRole(userId);
+        console.log(`[PermissionService] Papel do usuário ${userId}: ${userRole}`);
+        
+        if (userRole === 'super_admin' || userRole === 'admin') {
+          console.log(`[PermissionService] Usuário é ${userRole}, retornando todas as propriedades`);
+          // Retornar todas as propriedades do GA
+          const result = await client.query(
+            'SELECT DISTINCT property_id FROM ga_properties'
+          );
+          
+          console.log(`[PermissionService] Encontradas ${result.rows.length} propriedades GA no total`);
+          return result.rows.map(row => row.property_id);
+        }
+      } catch (roleError) {
+        console.error(`[PermissionService] Erro ao obter papel do usuário:`, roleError);
+        // Continuar e buscar permissões específicas
       }
 
       // Usuários comuns só têm acesso às propriedades permitidas
+      console.log(`[PermissionService] Buscando permissões específicas para usuário ${userId}`);
       const result = await client.query(
         'SELECT property_id FROM user_ga_property_permissions WHERE user_id = $1',
         [userId]
       );
       
-      return result.rows.map(row => row.property_id);
+      const propertyIds = result.rows.map(row => row.property_id);
+      console.log(`[PermissionService] Encontradas ${propertyIds.length} permissões para o usuário ${userId}`);
+      console.log(`[PermissionService] IDs das propriedades:`, propertyIds);
+      
+      return propertyIds;
+    } catch (error) {
+      console.error(`[PermissionService] Erro ao buscar propriedades GA do usuário ${userId}:`, error);
+      // Retornar array vazio em caso de erro para não interromper a aplicação
+      return [];
     } finally {
       client.release();
     }
@@ -164,13 +185,42 @@ class PermissionService {
     const client = await this.pgPool.connect();
     
     try {
-      await client.query(
+      console.log('[PermissionService] Adicionando permissão Meta:', { userId, accountId, createdBy });
+      
+      // Verificar se a conta de anúncio existe
+      const accountCheck = await client.query(
+        'SELECT COUNT(*) FROM ad_accounts WHERE account_id = $1',
+        [accountId]
+      );
+      
+      const accountExists = parseInt(accountCheck.rows[0].count) > 0;
+      console.log('[PermissionService] Conta existe?', accountExists);
+      
+      // Se a conta não existir, vamos inseri-la para garantir a integridade referencial
+      if (!accountExists) {
+        console.log('[PermissionService] Conta não existe, criando registro...');
+        await client.query(
+          'INSERT INTO ad_accounts (account_id, name, created_at) VALUES ($1, $2, NOW())',
+          [accountId, `Account ${accountId}`]
+        );
+      }
+      
+      // Adicionar permissão
+      const result = await client.query(
         `INSERT INTO user_ad_account_permissions 
-         (user_id, account_id, created_by) 
-         VALUES ($1, $2, $3)
+         (user_id, account_id, created_by, created_at) 
+         VALUES ($1, $2, $3, NOW())
          ON CONFLICT (user_id, account_id) DO NOTHING`,
         [userId, accountId, createdBy]
       );
+      
+      console.log('[PermissionService] Permissão adicionada, resultado:', {
+        rowCount: result.rowCount,
+        command: result.command
+      });
+    } catch (error) {
+      console.error('[PermissionService] Erro ao adicionar permissão Meta:', error);
+      throw error;
     } finally {
       client.release();
     }
@@ -186,10 +236,20 @@ class PermissionService {
     const client = await this.pgPool.connect();
     
     try {
-      await client.query(
+      console.log('[PermissionService] Removendo permissão Meta:', { userId, accountId });
+      
+      const result = await client.query(
         'DELETE FROM user_ad_account_permissions WHERE user_id = $1 AND account_id = $2',
         [userId, accountId]
       );
+      
+      console.log('[PermissionService] Permissão removida, resultado:', {
+        rowCount: result.rowCount,
+        command: result.command
+      });
+    } catch (error) {
+      console.error('[PermissionService] Erro ao remover permissão Meta:', error);
+      throw error;
     } finally {
       client.release();
     }
@@ -246,6 +306,9 @@ class PermissionService {
     const client = await this.pgPool.connect();
     
     try {
+      console.log(`[PermissionService] Buscando permissões Meta Ads para usuário ${userId}`);
+      
+      // Obter as permissões do banco de dados com informações de contas e criador
       const result = await client.query(
         `SELECT p.id, p.user_id, p.account_id, p.created_by, p.created_at, 
          a.name as account_name, u.name as created_by_name
@@ -256,7 +319,25 @@ class PermissionService {
         [userId]
       );
       
-      return result.rows;
+      const permissions = result.rows;
+      console.log(`[PermissionService] Encontradas ${permissions.length} permissões Meta Ads para usuário ${userId}`);
+      
+      // Processar cada permissão para garantir formato consistente dos dados
+      const formattedPermissions = permissions.map(permission => ({
+        id: permission.id,
+        userId: permission.user_id,
+        accountId: permission.account_id,
+        accountName: permission.account_name || `Conta ${permission.account_id}`,
+        createdBy: permission.created_by,
+        createdByName: permission.created_by_name || 'Usuário do sistema',
+        createdAt: permission.created_at
+      }));
+      
+      return formattedPermissions;
+    } catch (error) {
+      console.error(`[PermissionService] Erro ao buscar permissões Meta Ads para usuário ${userId}:`, error);
+      // Retornar array vazio em caso de erro para não quebrar a aplicação
+      return [];
     } finally {
       client.release();
     }
@@ -271,6 +352,8 @@ class PermissionService {
     const client = await this.pgPool.connect();
     
     try {
+      console.log(`[PermissionService] Buscando permissões Google Analytics para usuário ${userId}`);
+      
       const result = await client.query(
         `SELECT p.id, p.user_id, p.property_id, p.created_by, p.created_at, 
          g.property_name, u.name as created_by_name
@@ -281,7 +364,25 @@ class PermissionService {
         [userId]
       );
       
-      return result.rows;
+      const permissions = result.rows;
+      console.log(`[PermissionService] Encontradas ${permissions.length} permissões GA para usuário ${userId}`);
+      
+      // Processar cada permissão para garantir formato consistente dos dados
+      const formattedPermissions = permissions.map(permission => ({
+        id: permission.id,
+        userId: permission.user_id,
+        propertyId: permission.property_id,
+        propertyName: permission.property_name || `Propriedade ${permission.property_id}`,
+        createdBy: permission.created_by,
+        createdByName: permission.created_by_name || 'Usuário do sistema',
+        createdAt: permission.created_at
+      }));
+      
+      return formattedPermissions;
+    } catch (error) {
+      console.error(`[PermissionService] Erro ao buscar permissões GA para usuário ${userId}:`, error);
+      // Retornar array vazio em caso de erro para não quebrar a aplicação
+      return [];
     } finally {
       client.release();
     }

@@ -59,13 +59,58 @@ module.exports = function(redisClient, pgPool) {
   // Obter propriedades do GA4
   router.get('/properties', authMiddleware, async (req, res) => {
     try {
+      // Forçar cabeçalho Content-Type como application/json
+      res.set('Content-Type', 'application/json');
+      
+      console.log('[GoogleAnalyticsRoutes] Buscando propriedades GA para usuário:', req.user.userId);
+      
       const userId = req.user.userId; 
       const userRole = req.user.role;
       const properties = await googleAnalyticsService.getProperties(userId, userRole);
-      res.json(properties);
+      
+      console.log('[GoogleAnalyticsRoutes] Encontradas', properties.length, 'propriedades GA');
+      
+      // Retornar como array vazio se não houver propriedades
+      if (!properties || !Array.isArray(properties)) {
+        console.log('[GoogleAnalyticsRoutes] Nenhuma propriedade GA encontrada ou resposta inválida');
+        return res.status(200).json([]);
+      }
+      
+      // Formatar propriedades para garantir campos consistentes
+      const formattedProperties = properties.map(property => ({
+        id: property.property_id,
+        propertyId: property.property_id,
+        name: property.property_name || 'Propriedade GA',
+        accountId: property.account_id,
+        accountName: property.account_name || 'Conta GA'
+      }));
+      
+      // Retornar as propriedades formatadas
+      return res.status(200).json(formattedProperties);
     } catch (error) {
-      console.error('Erro ao obter propriedades do GA4:', error);
-      res.status(500).json({ error: 'Erro ao obter propriedades do GA4' });
+      console.error('[GoogleAnalyticsRoutes] Erro ao obter propriedades do GA4:', error);
+      
+      // Forçar cabeçalho Content-Type como application/json mesmo em caso de erro
+      res.set('Content-Type', 'application/json');
+      
+      // Verificar se é erro de autenticação
+      if (error.message && (
+          error.message.includes('token') || 
+          error.message.includes('autenticação') || 
+          error.message.includes('auth'))) {
+        return res.status(401).json({ 
+          error: 'authentication_error', 
+          message: 'Erro de autenticação com o Google Analytics. Reconecte sua conta.',
+          properties: []
+        });
+      }
+      
+      // Para outros erros
+      return res.status(500).json({ 
+        error: 'server_error', 
+        message: 'Erro ao obter propriedades do GA4',
+        properties: []
+      });
     }
   });
 

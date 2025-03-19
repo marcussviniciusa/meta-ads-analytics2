@@ -27,7 +27,19 @@ import {
   TableHead,
   TableBody,
   TableRow,
-  TableCell
+  TableCell,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Checkbox,
+  FormControlLabel,
+  InputAdornment,
+  OutlinedInput,
+  Link,
+  ListItem,
+  ListItemText,
+  List
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -38,6 +50,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DownloadIcon from '@mui/icons-material/Download';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import ShareIcon from '@mui/icons-material/Share';
+import FileCopyIcon from '@mui/icons-material/FileCopy';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import {
   BarChart,
   Bar,
@@ -53,6 +70,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
+import reportService from '../services/reportService';
 import metaReportService from '../services/metaReportService';
 
 // Cores para os gráficos
@@ -73,19 +91,11 @@ const MetaReports = () => {
   const { accountId } = useParams();
   const navigate = useNavigate();
   
-  // Estados
-  const [loading, setLoading] = useState(true);
+  // Estados de seleção e dados
   const [accountInfo, setAccountInfo] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [insights, setInsights] = useState([]);
-  const [selectedDate, setSelectedDate] = useState({
-    startDate: subDays(new Date(), 30),
-    endDate: new Date()
-  });
-  const [selectedCampaign, setSelectedCampaign] = useState('all');
-  const [activeTab, setActiveTab] = useState(0);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
-  const [showFilters, setShowFilters] = useState(false);
+  const [tableData, setTableData] = useState([]);
   const [performanceMetrics, setPerformanceMetrics] = useState({
     spend: 0,
     impressions: 0,
@@ -94,9 +104,34 @@ const MetaReports = () => {
     cpc: 0,
     reach: 0
   });
-  const [tableData, setTableData] = useState([]);
+  
+  // Estados da interface
+  const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [showFilters, setShowFilters] = useState(true);
+  const [activeTab, setActiveTab] = useState(0);
+  const [selectedCampaign, setSelectedCampaign] = useState('all');
+  const [selectedDate, setSelectedDate] = useState({
+    startDate: subDays(new Date(), 30),
+    endDate: new Date()
+  });
   const [downloadingData, setDownloadingData] = useState(false);
 
+  // Estados para a geração de relatórios
+  const [openShareDialog, setOpenShareDialog] = useState(false);
+  const [shareOptions, setShareOptions] = useState({
+    includeCharts: true,
+    expirationDays: 7,
+    requirePassword: false,
+    password: '',
+    allowDownload: true
+  });
+  const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [creatingLink, setCreatingLink] = useState(false);
+  const [reportName, setReportName] = useState('');
+  const [publicLink, setPublicLink] = useState('');
+  const [showLinkResult, setShowLinkResult] = useState(false);
+  
   // Buscar dados da conta ao montar o componente
   useEffect(() => {
     if (!accountId) {
@@ -645,6 +680,155 @@ const MetaReports = () => {
     );
   };
 
+  /**
+   * Abre o diálogo de compartilhamento
+   */
+  const handleOpenShareDialog = () => {
+    // Definir um nome padrão para o relatório
+    const defaultName = `Relatório Meta Ads - ${accountInfo?.name || 'Conta'} - ${format(selectedDate.startDate, 'dd/MM/yyyy')} a ${format(selectedDate.endDate, 'dd/MM/yyyy')}`;
+    setReportName(defaultName);
+    setOpenShareDialog(true);
+  };
+
+  /**
+   * Fecha o diálogo de compartilhamento
+   */
+  const handleCloseShareDialog = () => {
+    setOpenShareDialog(false);
+    setShowLinkResult(false);
+    setPublicLink('');
+  };
+
+  /**
+   * Atualiza as opções de compartilhamento
+   */
+  const handleShareOptionChange = (option, value) => {
+    setShareOptions({
+      ...shareOptions,
+      [option]: value
+    });
+  };
+
+  /**
+   * Gera um PDF do relatório
+   */
+  const handleGeneratePDF = async () => {
+    try {
+      setGeneratingPDF(true);
+      
+      // Preparar dados para o relatório
+      const startDateStr = format(selectedDate.startDate, 'yyyy-MM-dd');
+      const endDateStr = format(selectedDate.endDate, 'yyyy-MM-dd');
+      
+      // Estruturar os dados para o relatório
+      const reportData = {
+        accountName: accountInfo?.name || 'Nome da Conta',
+        accountId: accountId,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        metrics: performanceMetrics,
+        insights: insights,
+        campaigns: campaigns,
+        selectedCampaign: selectedCampaign !== 'all' ? campaigns.find(c => c.id === selectedCampaign)?.name : 'Todas as Campanhas',
+        tableData: tableData
+      };
+      
+      // Gerar o PDF
+      const result = await reportService.generatePDF({
+        ...reportData,
+        title: reportName,
+        type: 'meta_ads_report',
+        date: new Date().toISOString()
+      }, {
+        includeCharts: shareOptions.includeCharts
+      });
+      
+      // Verificar se estamos usando dados simulados
+      if (result.isSimulated) {
+        showSnackbar('Relatório JSON gerado com dados simulados devido a limitações da API', 'warning');
+      } else {
+        showSnackbar('Relatório PDF gerado com sucesso!', 'success');
+      }
+      
+      handleCloseShareDialog();
+    } catch (error) {
+      console.error('Erro ao gerar PDF:', error);
+      showSnackbar(`Erro ao gerar PDF: ${error.message || 'Erro desconhecido'}`, 'error');
+    } finally {
+      setGeneratingPDF(false);
+    }
+  };
+
+  /**
+   * Cria um link público para o relatório
+   */
+  const handleCreatePublicLink = async () => {
+    try {
+      setCreatingLink(true);
+      
+      // Preparar dados para o relatório
+      const startDateStr = format(selectedDate.startDate, 'yyyy-MM-dd');
+      const endDateStr = format(selectedDate.endDate, 'yyyy-MM-dd');
+      
+      // Estruturar os dados para o relatório
+      const reportData = {
+        accountName: accountInfo?.name || 'Nome da Conta',
+        accountId: accountId,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        metrics: performanceMetrics,
+        insights: insights,
+        campaigns: campaigns,
+        selectedCampaign: selectedCampaign !== 'all' ? campaigns.find(c => c.id === selectedCampaign)?.name : 'Todas as Campanhas',
+        tableData: tableData
+      };
+      
+      // Criar o link público
+      const result = await reportService.createPublicLink({
+        ...reportData,
+        title: reportName,
+        type: 'meta_ads_report',
+        date: new Date().toISOString()
+      }, {
+        expirationDays: shareOptions.expirationDays,
+        allowDownload: shareOptions.allowDownload,
+        requirePassword: shareOptions.requirePassword,
+        password: shareOptions.requirePassword ? shareOptions.password : null,
+        includeCharts: shareOptions.includeCharts
+      });
+      
+      // Verificar se estamos usando dados simulados
+      if (result.isSimulated) {
+        showSnackbar('Link público criado com dados simulados devido a limitações da API', 'warning');
+      } else {
+        showSnackbar('Link público criado com sucesso!', 'success');
+      }
+      
+      // Exibir o link gerado
+      setPublicLink(result.shareUrl);
+      setShowLinkResult(true);
+    } catch (error) {
+      console.error('Erro ao criar link público:', error);
+      showSnackbar(`Erro ao criar link público: ${error.message || 'Erro desconhecido'}`, 'error');
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+  
+  /**
+   * Copia o link público para a área de transferência
+   */
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(publicLink)
+      .then(() => {
+        showSnackbar('Link copiado para a área de transferência!', 'success');
+      })
+      .catch(err => {
+        console.error('Erro ao copiar link:', err);
+        showSnackbar('Erro ao copiar link', 'error');
+      });
+  };
+
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       {/* Cabeçalho */}
@@ -714,6 +898,15 @@ const MetaReports = () => {
               disabled={downloadingData || insights.length === 0}
             >
               {downloadingData ? 'Exportando...' : 'Exportar CSV'}
+            </Button>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<PictureAsPdfIcon />}
+              onClick={handleOpenShareDialog}
+              disabled={insights.length === 0}
+            >
+              Compartilhar Relatório
             </Button>
           </Box>
         </Box>
@@ -803,6 +996,163 @@ const MetaReports = () => {
           </Paper>
         </>
       )}
+
+      {/* Diálogo de compartilhamento */}
+      <Dialog
+        open={openShareDialog}
+        onClose={handleCloseShareDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Compartilhar Relatório
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <TextField
+                label="Nome do Relatório"
+                value={reportName}
+                onChange={(e) => setReportName(e.target.value)}
+                fullWidth
+                variant="outlined"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={shareOptions.includeCharts}
+                    onChange={(e) => handleShareOptionChange('includeCharts', e.target.checked)}
+                  />
+                }
+                label="Incluir Gráficos"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={shareOptions.allowDownload}
+                    onChange={(e) => handleShareOptionChange('allowDownload', e.target.checked)}
+                  />
+                }
+                label="Permitir Download"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={shareOptions.requirePassword}
+                    onChange={(e) => handleShareOptionChange('requirePassword', e.target.checked)}
+                  />
+                }
+                label="Requerer Senha"
+              />
+              {shareOptions.requirePassword && (
+                <TextField
+                  type="password"
+                  value={shareOptions.password}
+                  onChange={(e) => handleShareOptionChange('password', e.target.value)}
+                  placeholder="Senha"
+                  fullWidth
+                  margin="normal"
+                  variant="outlined"
+                />
+              )}
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth variant="outlined">
+                <InputLabel id="expiration-label">Validade do Link</InputLabel>
+                <Select
+                  labelId="expiration-label"
+                  value={shareOptions.expirationDays}
+                  onChange={(e) => handleShareOptionChange('expirationDays', e.target.value)}
+                  label="Validade do Link"
+                >
+                  <MenuItem value={7}>7 dias</MenuItem>
+                  <MenuItem value={30}>30 dias</MenuItem>
+                  <MenuItem value={60}>60 dias</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            
+            {/* Exibir link público */}
+            {showLinkResult && (
+              <Grid item xs={12}>
+                <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Link Público Gerado:
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <TextField
+                      value={publicLink}
+                      fullWidth
+                      variant="outlined"
+                      InputProps={{
+                        readOnly: true,
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton 
+                              onClick={handleCopyLink}
+                              edge="end"
+                              aria-label="copiar link"
+                            >
+                              <ContentCopyIcon />
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button 
+                      variant="outlined" 
+                      color="primary" 
+                      startIcon={<VisibilityIcon />}
+                      onClick={() => window.open(publicLink, '_blank')}
+                    >
+                      Visualizar
+                    </Button>
+                    <Button 
+                      variant="outlined" 
+                      color="primary" 
+                      startIcon={<ContentCopyIcon />}
+                      onClick={handleCopyLink}
+                    >
+                      Copiar Link
+                    </Button>
+                  </Box>
+                </Paper>
+              </Grid>
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseShareDialog}>
+            Cancelar
+          </Button>
+          <Button 
+            variant="contained"
+            color="primary"
+            onClick={handleGeneratePDF}
+            disabled={generatingPDF || !reportName}
+            startIcon={<PictureAsPdfIcon />}
+          >
+            {generatingPDF ? 'Gerando...' : 'Gerar PDF'}
+          </Button>
+          <Button 
+            variant="contained"
+            color="primary"
+            onClick={handleCreatePublicLink}
+            disabled={creatingLink || !reportName}
+            startIcon={<ShareIcon />}
+          >
+            {creatingLink ? 'Criando...' : 'Criar Link Público'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar para mensagens */}
       <Snackbar

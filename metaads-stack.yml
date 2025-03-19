@@ -13,7 +13,7 @@ x-environment: &default-env
 
 services:
   api:
-    image: marcussviniciusa/meta-ads-backend:v1.0.48
+    image: marcussviniciusa/meta-ads-backend:test
     # Healthcheck simplificado
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
@@ -59,6 +59,16 @@ services:
       # Configuração para forçar a migração do banco de dados
       AUTO_MIGRATE: "true"
       RUN_MIGRATIONS: "true"
+      INIT_DATABASE: "true"
+    # Comando para inicializar o banco de dados no startup
+    command: >
+      sh -c "
+        if [ \"$${INIT_DATABASE}\" = \"true\" ]; then
+          echo 'Inicializando banco de dados...' &&
+          node /app/src/migrations/init-database.js || echo 'Aviso: Não foi possível inicializar o banco de dados automaticamente.'
+        fi &&
+        npm start
+      "
     ports:
       - "8080:8080"
     networks:
@@ -69,23 +79,29 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=SpeedFunnelsNet"
-        # Roteamento para a API com suporte para ambos HTTP e HTTPS
+        
+        # Melhor definição de regras para a API
+        # Roteamento apenas para caminho /api
         - "traefik.http.routers.meta-api.rule=Host(`api.speedfunnels.online`)"
         - "traefik.http.routers.meta-api.entrypoints=web,websecure"
         - "traefik.http.services.meta-api-service.loadbalancer.server.port=8080"
         
-        # Configuração separada para HTTP e HTTPS
-        # Rota HTTP
+        # Rota HTTP para API com prioridade sobre outras rotas
         - "traefik.http.routers.meta-api-http.rule=Host(`api.speedfunnels.online`)"
         - "traefik.http.routers.meta-api-http.entrypoints=web"
         - "traefik.http.routers.meta-api-http.service=meta-api-service"
+        - "traefik.http.routers.meta-api-http.priority=200"
         
-        # Rota HTTPS com TLS
+        # Rota HTTPS para API com prioridade sobre outras rotas
         - "traefik.http.routers.meta-api-https.rule=Host(`api.speedfunnels.online`)"
         - "traefik.http.routers.meta-api-https.entrypoints=websecure"
         - "traefik.http.routers.meta-api-https.service=meta-api-service"
         - "traefik.http.routers.meta-api-https.tls=true"
         - "traefik.http.routers.meta-api-https.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.meta-api-https.priority=200"
+        
+        # Middleware para garantir Content-Type application/json
+        - "traefik.http.middlewares.api-json-headers.headers.customResponseHeaders.Content-Type=application/json"
         
         # Configuração CORS específica para o app.speedfunnels.online
         - "traefik.http.middlewares.cors-api.headers.accessControlAllowOriginList=https://app.speedfunnels.online,https://speedfunnels.online,https://www.speedfunnels.online,http://localhost:3000"
@@ -95,12 +111,12 @@ services:
         - "traefik.http.middlewares.cors-api.headers.accessControlMaxAge=86400"
         - "traefik.http.middlewares.cors-api.headers.addVaryHeader=true"
         
-        # Aplicando middleware de CORS para ambas as rotas
-        - "traefik.http.routers.meta-api-http.middlewares=cors-api@docker"
-        - "traefik.http.routers.meta-api-https.middlewares=cors-api@docker"
+        # Aplicando middleware de CORS e headers para ambas as rotas
+        - "traefik.http.routers.meta-api-http.middlewares=cors-api@docker,api-json-headers@docker"
+        - "traefik.http.routers.meta-api-https.middlewares=cors-api@docker,api-json-headers@docker"
 
   frontend:
-    image: marcussviniciusa/meta-ads-frontend:v1.0.51
+    image: marcussviniciusa/meta-ads-frontend:test
     command: ["nginx", "-g", "daemon off;"]
     stop_grace_period: 1m
     environment:

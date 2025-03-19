@@ -291,7 +291,15 @@ class GoogleAnalyticsService {
    */
   async getProperties(userId, userRole) {
     try {
-      console.log(`Buscando propriedades do GA4 para o usuário ${userId}`);
+      console.log(`[GoogleAnalyticsService] Buscando propriedades do GA4 para o usuário ${userId}, role: ${userRole}`);
+      
+      // Verificar se o usuário tem uma conexão ativa com GA
+      const connectionStatus = await this.checkConnectionStatus(userId);
+      if (!connectionStatus.connected) {
+        console.log(`[GoogleAnalyticsService] Usuário ${userId} não tem conexão ativa com Google Analytics`);
+        // Retornar array vazio em vez de lançar erro
+        return [];
+      }
       
       // Obter todas as propriedades do banco
       const result = await this.pgPool.query(
@@ -300,27 +308,70 @@ class GoogleAnalyticsService {
       );
       
       const properties = result.rows;
-      console.log(`Encontradas ${properties.length} propriedades para o usuário ${userId}`);
+      console.log(`[GoogleAnalyticsService] Encontradas ${properties.length} propriedades para o usuário ${userId}`);
+      
+      // Se nenhuma propriedade for encontrada, verificar se o token ainda é válido
+      // e possivelmente tentar uma reautorização
+      if (properties.length === 0) {
+        try {
+          console.log(`[GoogleAnalyticsService] Nenhuma propriedade encontrada, verificando token...`);
+          const accessToken = await this.getAccessToken(userId);
+          if (accessToken) {
+            console.log(`[GoogleAnalyticsService] Token válido, tentando buscar propriedades da API...`);
+            // Tentar buscar propriedades diretamente da API
+            await this.fetchAndSaveProperties(userId, accessToken);
+            
+            // Buscar novamente no banco
+            const refreshResult = await this.pgPool.query(
+              'SELECT * FROM ga_properties WHERE user_id = $1 ORDER BY created_at DESC',
+              [userId]
+            );
+            
+            if (refreshResult.rows.length > 0) {
+              console.log(`[GoogleAnalyticsService] Recuperadas ${refreshResult.rows.length} propriedades da API`);
+              return refreshResult.rows;
+            }
+          }
+        } catch (tokenError) {
+          console.error(`[GoogleAnalyticsService] Erro ao verificar token:`, tokenError);
+          // Continuar com array vazio
+        }
+      }
       
       // Se for admin ou super_admin, retornar todas as propriedades
       if (userRole === 'super_admin' || userRole === 'admin') {
+        console.log(`[GoogleAnalyticsService] Usuário ${userId} é ${userRole}, retornando todas as propriedades`);
         return properties;
       }
       
       // Para usuários normais, filtrar apenas as propriedades com permissão
-      const allowedPropertyIds = await this.permissionService.getUserGAProperties(userId);
-      
-      // Se não houver propriedades permitidas, retornar array vazio
-      if (!allowedPropertyIds || allowedPropertyIds.length === 0) {
+      try {
+        console.log(`[GoogleAnalyticsService] Verificando permissões específicas para usuário ${userId}`);
+        const allowedPropertyIds = await this.permissionService.getUserGAProperties(userId);
+        
+        // Se não houver propriedades permitidas, retornar array vazio
+        if (!allowedPropertyIds || allowedPropertyIds.length === 0) {
+          console.log(`[GoogleAnalyticsService] Nenhuma propriedade permitida para o usuário ${userId}`);
+          return [];
+        }
+        
+        console.log(`[GoogleAnalyticsService] Usuário ${userId} tem permissão para ${allowedPropertyIds.length} propriedades`);
+        
+        // Filtrar as propriedades conforme permissões
+        const filteredProperties = properties.filter(property => 
+          allowedPropertyIds.includes(property.property_id)
+        );
+        
+        console.log(`[GoogleAnalyticsService] Retornando ${filteredProperties.length} propriedades filtradas por permissão`);
+        return filteredProperties;
+      } catch (permissionError) {
+        console.error(`[GoogleAnalyticsService] Erro ao verificar permissões:`, permissionError);
+        // Em caso de erro de permissão, retornar array vazio por segurança
         return [];
       }
-      
-      // Filtrar as propriedades conforme permissões
-      return properties.filter(property => 
-        allowedPropertyIds.includes(property.property_id)
-      );
     } catch (error) {
-      console.error('Erro ao obter propriedades do GA4:', error);
+      console.error('[GoogleAnalyticsService] Erro ao obter propriedades do GA4:', error);
+      // Propagar o erro para tratamento na camada de rota
       throw error;
     }
   }

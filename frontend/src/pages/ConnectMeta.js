@@ -139,8 +139,24 @@ const ConnectMeta = () => {
         throw new Error('Falha na conexão');
       }
     } catch (err) {
-      setError('Falha ao conectar com o Meta Ads. Por favor, tente novamente.');
       console.error('Meta connection error:', err);
+      
+      // Verificar se o erro é de código expirado
+      if (err.response && 
+          err.response.data && 
+          err.response.data.error && 
+          (err.response.data.error.code === 100 || 
+           err.response.data.error.error_subcode === 36007 || 
+           err.response.data.message === 'This authorization code has expired.')) {
+        
+        setError('O código de autorização do Meta Ads expirou. Isso pode acontecer se a página foi recarregada ou se esperou muito tempo. Por favor, tente novamente.');
+        
+        // Remover parâmetros da URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        setError('Falha ao conectar com o Meta Ads. Por favor, tente novamente.');
+      }
+      
       setActiveStep(0);
     } finally {
       setLoading(false);

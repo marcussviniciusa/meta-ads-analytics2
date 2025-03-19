@@ -11,7 +11,10 @@ import Dashboard from './pages/Dashboard';
 import ConnectMeta from './pages/ConnectMeta';
 import MetaAccounts from './pages/MetaAccounts';
 import GoogleAnalyticsPage from './pages/GoogleAnalyticsPage';
+import Reports from './pages/Reports';
+import MetaReports from './pages/MetaReports';
 import Navigation from './components/Navigation';
+import PublicReport from './pages/PublicReport';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/Dashboard';
@@ -129,14 +132,42 @@ const App = () => {
               } 
             />
             <Route 
+              path="/reports" 
+              element={
+                <PrivateRoute>
+                  <>
+                    <Navigation />
+                    <Reports />
+                  </>
+                </PrivateRoute>
+              } 
+            />
+            <Route 
               path="/reports/meta/:accountId" 
               element={
                 <PrivateRoute>
                   <>
                     <Navigation />
-                    <div>Reports Page (Em desenvolvimento)</div>
+                    <MetaReports />
                   </>
                 </PrivateRoute>
+              } 
+            />
+            <Route 
+              path="/meta-reports" 
+              element={
+                <PrivateRoute>
+                  <>
+                    <Navigation />
+                    <MetaReports />
+                  </>
+                </PrivateRoute>
+              } 
+            />
+            <Route 
+              path="/public-report/:shareId" 
+              element={
+                <PublicReport />
               } 
             />
             

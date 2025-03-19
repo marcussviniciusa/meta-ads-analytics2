@@ -15,6 +15,9 @@ class IntegrationController {
    */
   async getIntegrationSources(req, res, next) {
     try {
+      // Set Content-Type header for consistent response format
+      res.set('Content-Type', 'application/json');
+      
       // Get all integration sources
       const result = await this.pgPool.query(
         'SELECT id, name, display_name, description, is_active FROM integration_sources ORDER BY id'
@@ -22,7 +25,13 @@ class IntegrationController {
       
       res.status(200).json(result.rows);
     } catch (error) {
-      next(error);
+      console.error('[IntegrationController] Error getting integration sources:', error);
+      res.set('Content-Type', 'application/json');
+      res.status(500).json({
+        message: 'Erro ao obter fontes de integração',
+        error: 'internal_server_error',
+        details: error.message
+      });
     }
   }
 
@@ -34,6 +43,9 @@ class IntegrationController {
    */
   async getUserIntegrations(req, res, next) {
     try {
+      // Set Content-Type header for consistent response format
+      res.set('Content-Type', 'application/json');
+      
       const userId = req.user.userId;
       
       // Get user integrations
@@ -48,7 +60,13 @@ class IntegrationController {
       
       res.status(200).json(result.rows);
     } catch (error) {
-      next(error);
+      console.error('[IntegrationController] Error getting user integrations:', error);
+      res.set('Content-Type', 'application/json');
+      res.status(500).json({
+        message: 'Erro ao obter integrações do usuário',
+        error: 'internal_server_error',
+        details: error.message
+      });
     }
   }
 
@@ -60,6 +78,9 @@ class IntegrationController {
    */
   async upsertIntegration(req, res, next) {
     try {
+      // Set Content-Type header for consistent response format
+      res.set('Content-Type', 'application/json');
+      
       const userId = req.user.userId;
       const { sourceId, isConnected, credentials } = req.body;
       
@@ -70,14 +91,20 @@ class IntegrationController {
       );
       
       if (sourceResult.rows.length === 0) {
-        return res.status(404).json({ message: 'Fonte de integração não encontrada' });
+        return res.status(404).json({ 
+          message: 'Fonte de integração não encontrada',
+          error: 'source_not_found'
+        });
       }
       
       const source = sourceResult.rows[0];
       
       // Check if source is active
       if (!source.is_active) {
-        return res.status(400).json({ message: 'Esta fonte de integração não está disponível no momento' });
+        return res.status(400).json({ 
+          message: 'Esta fonte de integração não está disponível no momento',
+          error: 'source_inactive'
+        });
       }
       
       // Create/update integration
@@ -94,10 +121,18 @@ class IntegrationController {
       
       res.status(200).json({
         id: integrationId,
-        message: 'Integração atualizada com sucesso'
+        message: 'Integração atualizada com sucesso',
+        success: true
       });
     } catch (error) {
-      next(error);
+      console.error('[IntegrationController] Error upserting integration:', error);
+      res.set('Content-Type', 'application/json');
+      res.status(500).json({
+        message: 'Erro ao criar/atualizar integração',
+        error: 'internal_server_error',
+        details: error.message,
+        success: false
+      });
     }
   }
 
@@ -109,8 +144,25 @@ class IntegrationController {
    */
   async disconnectIntegration(req, res, next) {
     try {
+      // Set Content-Type header for consistent response format
+      res.set('Content-Type', 'application/json');
+      
       const userId = req.user.userId;
       const { sourceId } = req.params;
+      
+      // Check if integration exists
+      const checkResult = await this.pgPool.query(
+        'SELECT id FROM user_integrations WHERE user_id = $1 AND source_id = $2',
+        [userId, sourceId]
+      );
+      
+      if (checkResult.rows.length === 0) {
+        return res.status(404).json({ 
+          message: 'Integração não encontrada',
+          error: 'integration_not_found',
+          success: false
+        });
+      }
       
       // Update integration
       await this.pgPool.query(
@@ -119,9 +171,19 @@ class IntegrationController {
         [userId, sourceId]
       );
       
-      res.status(200).json({ message: 'Integração desconectada com sucesso' });
+      res.status(200).json({ 
+        message: 'Integração desconectada com sucesso',
+        success: true
+      });
     } catch (error) {
-      next(error);
+      console.error('[IntegrationController] Error disconnecting integration:', error);
+      res.set('Content-Type', 'application/json');
+      res.status(500).json({
+        message: 'Erro ao desconectar integração',
+        error: 'internal_server_error',
+        details: error.message,
+        success: false
+      });
     }
   }
 
@@ -133,21 +195,44 @@ class IntegrationController {
    */
   async getMetaAuthUrl(req, res, next) {
     try {
+      // Set Content-Type header for consistent response format
+      res.set('Content-Type', 'application/json');
+      
       const userId = req.user.userId;
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       const redirectUri = `${frontendUrl}/connect-meta/callback`;
+      
+      // Validate environment variables
+      if (!process.env.META_APP_ID) {
+        console.error('[IntegrationController] Missing META_APP_ID environment variable');
+        return res.status(500).json({
+          message: 'Configuração da integração com Meta Ads incompleta (META_APP_ID)',
+          error: 'config_error',
+          success: false
+        });
+      }
       
       // Generate state parameter to prevent CSRF
       const stateToken = Math.random().toString(36).substring(2, 15) + 
                          Math.random().toString(36).substring(2, 15);
       
-      // Store state token in Redis with expiration (10 minutes)
-      await this.redisClient.set(
-        `meta_auth_state:${userId}`,
-        stateToken,
-        'EX',
-        600
-      );
+      try {
+        // Store state token in Redis with expiration (10 minutes)
+        await this.redisClient.set(
+          `meta_auth_state:${userId}`,
+          stateToken,
+          'EX',
+          600
+        );
+      } catch (redisError) {
+        console.error('[IntegrationController] Redis error when setting state token:', redisError);
+        return res.status(500).json({
+          message: 'Erro interno ao iniciar processo de autenticação',
+          error: 'redis_error',
+          details: redisError.message,
+          success: false
+        });
+      }
       
       // Construct authorization URL
       const authUrl = new URL('https://www.facebook.com/v17.0/dialog/oauth');
@@ -157,9 +242,19 @@ class IntegrationController {
       authUrl.searchParams.append('scope', 'ads_management,ads_read,business_management');
       authUrl.searchParams.append('response_type', 'code');
       
-      res.status(200).json({ authUrl: authUrl.toString() });
+      res.status(200).json({ 
+        authUrl: authUrl.toString(),
+        success: true
+      });
     } catch (error) {
-      next(error);
+      console.error('[IntegrationController] Error creating Meta auth URL:', error);
+      res.set('Content-Type', 'application/json');
+      res.status(500).json({
+        message: 'Erro ao criar URL de autenticação Meta',
+        error: 'internal_server_error',
+        details: error.message,
+        success: false
+      });
     }
   }
 
@@ -171,13 +266,36 @@ class IntegrationController {
    */
   async processMetaCallback(req, res, next) {
     try {
-      const userId = req.user.userId;
+      // Ensure consistent response format
+      res.set('Content-Type', 'application/json');
+      
+      const userId = req.user?.userId;
       const { code, state, redirectUri } = req.body;
       
-      console.log('Processing Meta Callback:', { userId, code: code?.substring(0, 10) + '...', state, redirectUri });
+      console.log('[IntegrationController] Processing Meta Callback:', { 
+        userId, 
+        userInfo: req.user,
+        code: code?.substring(0, 10) + '...', 
+        state, 
+        redirectUri 
+      });
+      
+      // Verificar se o userId está definido
+      if (!userId) {
+        console.error('[IntegrationController] UserId is undefined in request. User object:', req.user);
+        return res.status(400).json({
+          message: 'ID do usuário não encontrado na requisição. Por favor, faça login novamente.',
+          error: 'user_not_found',
+          success: false,
+          diagnostics: {
+            type: 'authentication_error',
+            suggestion: 'Tente fazer logout e login novamente para atualizar sua sessão.'
+          }
+        });
+      }
       
       // Verify state parameter to prevent CSRF
-      console.log('Checking state for user:', userId);
+      console.log('[IntegrationController] Checking state for user:', userId);
       
       // Durante testes, vamos temporariamente ignorar a validação do state
       // para verificar se o processo de troca de código por token está funcionando
@@ -203,24 +321,52 @@ class IntegrationController {
       */
       
       // Durante o desenvolvimento, vamos pular a verificação de estado
-      console.log('Skipping state verification during development');
+      console.log('[IntegrationController] Skipping state verification during development');
       
       // Comentamos esta linha porque acabamos de desabilitar a verificação do estado
       // await this.redisClient.del(`meta_auth_state:${userId}`);
-      console.log('State token deletion skipped during development');
+      console.log('[IntegrationController] State token deletion skipped during development');
       
       // Use provided redirectUri or fallback to default
       const useRedirectUri = redirectUri || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/connect-meta/callback`;
       
       const axios = require('axios');
-      console.log('Exchanging code for token with params:', {
+      console.log('[IntegrationController] Exchanging code for token with params:', {
         client_id: process.env.META_APP_ID,
         redirect_uri: useRedirectUri,
         code_truncated: code?.substring(0, 10) + '...'
       });
       
-      console.log('Meta App ID:', process.env.META_APP_ID);
-      console.log('Redirect URI for token exchange:', useRedirectUri);
+      console.log('[IntegrationController] Meta App ID:', process.env.META_APP_ID);
+      console.log('[IntegrationController] Redirect URI for token exchange:', useRedirectUri);
+      
+      // Validate required environment variables
+      if (!process.env.META_APP_ID || !process.env.META_APP_SECRET) {
+        console.error('[IntegrationController] Missing Meta API credentials');
+        return res.status(500).json({
+          message: 'Configuração da integração com Meta Ads incompleta',
+          error: 'config_error',
+          success: false,
+          diagnostics: {
+            type: 'configuration_error',
+            suggestion: 'Verifique se as variáveis META_APP_ID e META_APP_SECRET estão configuradas no servidor.'
+          }
+        });
+      }
+      
+      // Validate code parameter
+      if (!code) {
+        console.error('[IntegrationController] Missing code parameter');
+        return res.status(400).json({
+          message: 'Parâmetro de código ausente no callback de autorização',
+          error: 'missing_code',
+          success: false,
+          diagnostics: {
+            type: 'oauth_error',
+            suggestion: 'Tente iniciar o processo de autorização novamente.'
+          }
+        });
+      }
       
       let tokenData;
       try {
@@ -230,43 +376,113 @@ class IntegrationController {
             client_secret: process.env.META_APP_SECRET,
             redirect_uri: useRedirectUri,
             code: code
+          },
+          timeout: 15000, // 15 segundos de timeout
+          headers: {
+            'Accept': 'application/json'
           }
         });
-        console.log('Token response received:', !!tokenResponse.data);
+        console.log('[IntegrationController] Token response received:', !!tokenResponse.data);
         tokenData = tokenResponse.data;
       } catch (tokenError) {
-        console.error('Error exchanging code for token:', tokenError.message);
+        console.error('[IntegrationController] Error exchanging code for token:', tokenError.message);
+        
+        // Detailed error diagnostics based on the error
+        let diagnostics = {
+          type: 'api_error',
+          suggestion: 'Tente novamente. Se o problema persistir, verifique sua conexão com a internet e tente mais tarde.'
+        };
+        
+        let errorCode = 'token_exchange_error';
+        let statusCode = 400;
+        
         if (tokenError.response) {
-          console.error('Facebook API response:', tokenError.response.data);
+          console.error('[IntegrationController] Facebook API response:', tokenError.response.data);
+          
+          const fbError = tokenError.response.data.error || {};
+          
+          // Specific error handling for common Meta API errors
+          if (fbError.code === 190 || fbError.type === 'OAuthException') {
+            diagnostics = {
+              type: 'oauth_error',
+              suggestion: 'A autorização com o Facebook expirou ou é inválida. Tente reconectar sua conta.'
+            };
+            errorCode = 'oauth_exception';
+          } else if (fbError.code === 4 || fbError.type === 'APIError') {
+            diagnostics = {
+              type: 'rate_limit_error',
+              suggestion: 'Limite de requisições atingido. Aguarde alguns minutos e tente novamente.'
+            };
+            errorCode = 'api_rate_limit';
+          } else if (fbError.code === 2 || fbError.message?.includes('temporarily')) {
+            diagnostics = {
+              type: 'temporary_error',
+              suggestion: 'O Facebook está com problemas temporários. Tente novamente mais tarde.'
+            };
+            errorCode = 'temporary_failure';
+          } else if (fbError.code === 200 || fbError.type === 'GraphMethodException') {
+            diagnostics = {
+              type: 'permission_error',
+              suggestion: 'Permissões insuficientes. Verifique se você tem as permissões corretas para acessar a API do Meta Ads.'
+            };
+            errorCode = 'permission_denied';
+          }
+          
+          // Set specific status code based on the error
+          if (fbError.code === 190) statusCode = 401; // Authentication error
+          else if (fbError.code === 4) statusCode = 429; // Rate limit
+          else if (fbError.code === 2) statusCode = 503; // Service unavailable
+          else if (fbError.code === 200) statusCode = 403; // Forbidden
+          
+          // Retornar erro específico do Facebook para o cliente
+          return res.status(statusCode).json({ 
+            message: 'Falha ao trocar código por token: ' + tokenError.message,
+            error: errorCode,
+            origin: 'facebook',
+            success: false,
+            details: fbError,
+            diagnostics: diagnostics
+          });
         }
-        return res.status(400).json({ 
-          message: 'Falha ao trocar código por token: ' + tokenError.message 
+        
+        // Generic error if no specific error response
+        return res.status(statusCode).json({ 
+          message: 'Falha ao trocar código por token: ' + tokenError.message,
+          error: errorCode,
+          success: false,
+          diagnostics: diagnostics
         });
       }
       
       if (!tokenData || !tokenData.access_token) {
-        console.error('No access token received from Meta');
+        console.error('[IntegrationController] No access token received from Meta');
         return res.status(400).json({ 
-          message: 'Falha ao obter token de acesso do Meta Ads' 
+          message: 'Falha ao obter token de acesso do Meta Ads',
+          error: 'missing_token',
+          success: false,
+          diagnostics: {
+            type: 'oauth_error',
+            suggestion: 'O Facebook não retornou um token de acesso válido. Tente reconectar sua conta.'
+          }
         });
       }
       
-      console.log('Access token obtained successfully. Expires in:', tokenData.expires_in, 'seconds');
+      console.log('[IntegrationController] Access token obtained successfully. Expires in:', tokenData.expires_in, 'seconds');
       
       // Get Meta integration source ID
       let metaSourceId;
       try {
-        console.log('Querying database for meta_ads source');
+        console.log('[IntegrationController] Querying database for meta_ads source');
         const sourceResult = await this.pgPool.query(
           'SELECT id FROM integration_sources WHERE name = $1',
           ['meta_ads']
         );
         
-        console.log('Database query result:', sourceResult.rows);
+        console.log('[IntegrationController] Database query result:', sourceResult.rows);
         
         if (sourceResult.rows.length === 0) {
           // Se não encontrarmos a fonte, vamos criá-la para desenvolvimento
-          console.log('Meta Ads source not found, creating it');
+          console.log('[IntegrationController] Meta Ads source not found, creating it');
           const insertResult = await this.pgPool.query(
             'INSERT INTO integration_sources(name, display_name, description, created_at, updated_at) ' +
             'VALUES($1, $2, $3, NOW(), NOW()) RETURNING id',
@@ -274,15 +490,21 @@ class IntegrationController {
           );
           
           metaSourceId = insertResult.rows[0].id;
-          console.log('Created new meta_ads source with ID:', metaSourceId);
+          console.log('[IntegrationController] Created new meta_ads source with ID:', metaSourceId);
         } else {
           metaSourceId = sourceResult.rows[0].id;
-          console.log('Found existing meta_ads source with ID:', metaSourceId);
+          console.log('[IntegrationController] Found existing meta_ads source with ID:', metaSourceId);
         }
       } catch (dbError) {
-        console.error('Database error:', dbError);
+        console.error('[IntegrationController] Database error:', dbError);
         return res.status(500).json({
-          message: 'Erro ao acessar banco de dados: ' + dbError.message
+          message: 'Erro ao acessar banco de dados: ' + dbError.message,
+          error: 'database_error',
+          success: false,
+          diagnostics: {
+            type: 'database_error',
+            suggestion: 'Erro interno do servidor. Por favor, tente novamente mais tarde.'
+          }
         });
       }
       
@@ -295,7 +517,7 @@ class IntegrationController {
       };
       
       try {
-        console.log('Saving token to database for user:', userId);
+        console.log('[IntegrationController] Saving token to database for user:', userId);
         // Update integration record
         await this.pgPool.query(
           'INSERT INTO user_integrations (user_id, source_id, is_connected, credentials, last_sync) ' +
@@ -305,7 +527,7 @@ class IntegrationController {
           [userId, metaSourceId, true, JSON.stringify(credentials)]
         );
         
-        console.log('Token successfully saved to database');
+        console.log('[IntegrationController] Token successfully saved to database');
         
         // Armazenar o token no Redis para acesso rápido
         await this.redisClient.set(
@@ -315,19 +537,42 @@ class IntegrationController {
           86400 // 24 horas
         );
         
+        console.log('[IntegrationController] Meta integration completed successfully for user:', userId);
+        
         res.status(200).json({
           message: 'Conta Meta Ads conectada com sucesso',
-          isConnected: true
+          isConnected: true,
+          success: true
         });
       } catch (dbSaveError) {
-        console.error('Error saving token to database:', dbSaveError);
+        console.error('[IntegrationController] Error saving token to database:', dbSaveError);
         return res.status(500).json({
-          message: 'Erro ao salvar token: ' + dbSaveError.message
+          message: 'Erro ao salvar token: ' + dbSaveError.message,
+          error: 'database_save_error',
+          success: false,
+          diagnostics: {
+            type: 'database_error',
+            suggestion: 'Não foi possível salvar suas credenciais. Tente novamente mais tarde.'
+          }
         });
       }
     } catch (error) {
-      console.error('Erro ao processar callback do Meta:', error);
-      next(error);
+      console.error('[IntegrationController] Erro ao processar callback do Meta:', error);
+      
+      // Set Content-Type header for consistent response format
+      res.set('Content-Type', 'application/json');
+      
+      // Return detailed error response
+      res.status(500).json({
+        message: 'Erro interno ao processar a autorização do Meta Ads',
+        error: 'internal_server_error',
+        details: error.message,
+        success: false,
+        diagnostics: {
+          type: 'internal_error',
+          suggestion: 'Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.'
+        }
+      });
     }
   }
 
@@ -391,6 +636,11 @@ class IntegrationController {
     try {
       const userId = req.user.userId;
       
+      console.log('[IntegrationController] Buscando contas Meta Ads para usuário:', userId);
+      
+      // Forçar cabeçalhos Content-Type para JSON
+      res.set('Content-Type', 'application/json');
+      
       // Get Meta integration
       const integrationResult = await this.pgPool.query(
         'SELECT ui.id, ui.credentials FROM user_integrations ui ' +
@@ -400,52 +650,208 @@ class IntegrationController {
       );
       
       if (integrationResult.rows.length === 0) {
+        console.log('[IntegrationController] Integração Meta Ads não encontrada para usuário:', userId);
         return res.status(404).json({ 
-          message: 'Integração com Meta Ads não encontrada ou não está ativa' 
+          message: 'Integração com Meta Ads não encontrada ou não está ativa',
+          error: 'integration_required',
+          accounts: [],
+          success: false,
+          diagnostics: {
+            type: 'integration_missing',
+            suggestion: 'Você precisa conectar sua conta do Meta Ads antes de acessar suas contas de anúncios. Clique no botão "Conectar Meta Ads" para iniciar o processo de conexão.'
+          }
         });
       }
       
       const integration = integrationResult.rows[0];
       const credentials = integration.credentials;
       
-      // Check if token is valid
-      if (credentials.expires_at < Date.now()) {
+      // Check if token exists
+      if (!credentials || !credentials.access_token) {
+        console.log('[IntegrationController] Token Meta Ads não encontrado para usuário:', userId);
         return res.status(401).json({
-          message: 'Token do Meta Ads expirou. Por favor, reconecte sua conta.'
+          message: 'Token do Meta Ads não encontrado. Por favor, reconecte sua conta.',
+          error: 'token_not_found',
+          accounts: [],
+          success: false,
+          diagnostics: {
+            type: 'authentication_error',
+            suggestion: 'Suas credenciais do Meta Ads não foram encontradas. Clique em "Reconectar Meta Ads" para autorizar novamente.'
+          }
+        });
+      }
+      
+      // Check if token is valid
+      if (credentials.expires_at && credentials.expires_at < Date.now()) {
+        console.log('[IntegrationController] Token Meta Ads expirado para usuário:', userId);
+        return res.status(401).json({
+          message: 'Token do Meta Ads expirou. Por favor, reconecte sua conta.',
+          error: 'token_expired',
+          accounts: [],
+          success: false,
+          diagnostics: {
+            type: 'expired_token',
+            suggestion: 'Sua sessão com o Meta Ads expirou. Para continuar usando a integração, clique em "Reconectar Meta Ads".'
+          }
         });
       }
       
       // Fetch ad accounts from Meta
+      console.log('[IntegrationController] Buscando contas na API do Meta para usuário:', userId);
       const axios = require('axios');
-      const adAccountsResponse = await axios.get('https://graph.facebook.com/v17.0/me/adaccounts', {
-        params: {
-          access_token: credentials.access_token,
-          fields: 'id,name,account_id,account_status,business_name,currency,timezone_name'
+      
+      try {
+        const adAccountsResponse = await axios.get('https://graph.facebook.com/v17.0/me/adaccounts', {
+          params: {
+            access_token: credentials.access_token,
+            fields: 'id,name,account_id,account_status,business_name,currency,timezone_name'
+          },
+          timeout: 10000, // 10 segundos de timeout
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        console.log('[IntegrationController] Resposta da API Meta recebida com sucesso');
+        
+        if (!adAccountsResponse.data || !adAccountsResponse.data.data) {
+          console.warn('[IntegrationController] Resposta da API Meta sem dados esperados:', adAccountsResponse.data);
+          return res.status(200).json({
+            accounts: [],
+            success: true,
+            diagnostics: {
+              type: 'empty_response',
+              suggestion: 'Nenhuma conta de anúncios foi encontrada. Se você acredita que isso é um erro, verifique se tem permissões de acesso às contas no Business Manager do Meta Ads.'
+            }
+          });
+        }
+        
+        const adAccounts = adAccountsResponse.data.data || [];
+        
+        // Format response
+        const formattedAccounts = adAccounts.map(account => ({
+          id: account.id,
+          account_id: account.account_id,
+          name: account.name,
+          businessName: account.business_name,
+          status: account.account_status,
+          statusText: this._getAccountStatusText(account.account_status),
+          currency: account.currency,
+          timezone: account.timezone_name
+        }));
+        
+        console.log('[IntegrationController] Retornando', formattedAccounts.length, 'contas Meta');
+        return res.status(200).json({
+          accounts: formattedAccounts,
+          success: true
+        });
+      } catch (metaApiError) {
+        console.error('[IntegrationController] Erro na API do Meta:', metaApiError.message);
+        
+        // Verificar detalhes do erro da API Meta
+        const metaErrorResponse = metaApiError.response?.data?.error;
+        
+        // Preparar diagnóstico padrão
+        let diagnostics = {
+          type: 'api_error',
+          suggestion: 'Ocorreu um erro ao acessar a API do Meta Ads. Tente novamente mais tarde.'
+        };
+        
+        let errorCode = 'meta_api_error';
+        let statusCode = 400;
+        
+        if (metaErrorResponse) {
+          console.error('[IntegrationController] Erro da API Meta:', {
+            type: metaErrorResponse.type,
+            message: metaErrorResponse.message,
+            code: metaErrorResponse.code,
+            fbtrace_id: metaErrorResponse.fbtrace_id
+          });
+          
+          // Diagnósticos específicos para diferentes tipos de erros da API Meta
+          if (metaErrorResponse.type === 'OAuthException') {
+            diagnostics = {
+              type: 'oauth_error',
+              suggestion: 'Sua autorização com o Meta Ads expirou ou foi revogada. Clique em "Reconectar Meta Ads" para autorizar novamente.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'oauth_error';
+            statusCode = 401;
+          } else if (metaErrorResponse.code === 4 || metaErrorResponse.code === 17 || (metaErrorResponse.message && metaErrorResponse.message.includes('rate limit'))) {
+            diagnostics = {
+              type: 'rate_limit',
+              suggestion: 'Você atingiu o limite de requisições para a API do Meta Ads. Aguarde alguns minutos e tente novamente.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'rate_limit_exceeded';
+            statusCode = 429;
+          } else if (metaErrorResponse.code === 10 || metaErrorResponse.type === 'PermissionError') {
+            diagnostics = {
+              type: 'permission_error',
+              suggestion: 'Você não tem permissão para acessar as contas de anúncios. Verifique suas permissões no Business Manager do Meta Ads.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'permission_denied';
+            statusCode = 403;
+          } else if (metaErrorResponse.code === 1 || metaErrorResponse.type === 'GraphMethodException') {
+            diagnostics = {
+              type: 'api_method_error',
+              suggestion: 'Erro no método da API do Meta Ads. Verifique se você tem permissões para acessar as contas de anúncios e tente novamente.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'api_method_error';
+          } else if (metaErrorResponse.code === 2 || (metaErrorResponse.message && metaErrorResponse.message.toLowerCase().includes('temporarily'))) {
+            diagnostics = {
+              type: 'service_unavailable',
+              suggestion: 'O serviço da API do Meta Ads está temporariamente indisponível. Tente novamente mais tarde.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'service_unavailable';
+            statusCode = 503;
+          }
+          
+          console.log('[IntegrationController] Erro na API do Meta diagnosticado como:', diagnostics.type);
+          
+          return res.status(statusCode).json({
+            message: 'Erro ao buscar contas do Meta Ads: ' + metaErrorResponse.message,
+            error: errorCode,
+            details: metaErrorResponse,
+            accounts: [],
+            success: false,
+            diagnostics: diagnostics
+          });
+        }
+        
+        // Erro genérico da API Meta
+        return res.status(statusCode).json({
+          message: 'Erro ao buscar contas do Meta Ads',
+          error: errorCode,
+          details: metaApiError.message,
+          accounts: [],
+          success: false,
+          diagnostics: diagnostics
+        });
+      }
+    } catch (error) {
+      console.error('[IntegrationController] Erro interno ao buscar contas Meta Ads:', error);
+      
+      // Garantir que a resposta seja JSON mesmo em caso de erro
+      res.set('Content-Type', 'application/json');
+      res.status(500).json({
+        message: 'Erro interno ao buscar contas de anúncios do Meta',
+        error: 'internal_server_error',
+        accounts: [],
+        success: false,
+        diagnostics: {
+          type: 'internal_error',
+          suggestion: 'Ocorreu um erro inesperado no servidor. Por favor, tente novamente mais tarde ou entre em contato com o suporte se o problema persistir.'
         }
       });
-      
-      const adAccounts = adAccountsResponse.data.data || [];
-      
-      // Format response
-      const formattedAccounts = adAccounts.map(account => ({
-        id: account.id,
-        accountId: account.account_id,
-        name: account.name,
-        businessName: account.business_name,
-        status: this._getAccountStatusText(account.account_status),
-        currency: account.currency,
-        timezone: account.timezone_name
-      }));
-      
-      res.status(200).json(formattedAccounts);
-    } catch (error) {
-      console.error('Erro ao buscar contas de anúncios do Meta:', error);
-      next(error);
     }
   }
 
   /**
-   * Get details for a specific Meta Ads account
+   * Get Meta Ad Account details
    * @param {Object} req - Express request object
    * @param {Object} res - Express response object
    * @param {Function} next - Express next middleware function
@@ -488,7 +894,8 @@ class IntegrationController {
       if (error.response && error.response.data) {
         return res.status(error.response.status).json({ 
           message: 'Erro ao obter detalhes da conta do Meta Ads',
-          error: error.response.data.error
+          error: error.response.data.error,
+          origin: 'facebook' 
         });
       }
       
@@ -583,7 +990,8 @@ class IntegrationController {
       if (error.response && error.response.data) {
         return res.status(error.response.status).json({ 
           message: 'Erro ao obter campanhas do Meta Ads',
-          error: error.response.data.error
+          error: error.response.data.error,
+          origin: 'facebook' 
         });
       }
       
@@ -711,8 +1119,7 @@ class IntegrationController {
         ctr: insight.ctr || 0,
         cpc: insight.cpc || 0,
         spend: insight.spend || 0,
-        reach: insight.reach || 0,
-        frequency: insight.frequency || 0
+        reach: insight.reach || 0
       }));
       
       res.status(200).json({ insights: processedInsights });
@@ -723,7 +1130,8 @@ class IntegrationController {
       if (error.response && error.response.data) {
         return res.status(error.response.status).json({ 
           message: 'Erro ao obter insights do Meta Ads',
-          error: error.response.data.error
+          error: error.response.data.error,
+          origin: 'facebook' 
         });
       }
       
@@ -809,7 +1217,8 @@ class IntegrationController {
       if (error.response && error.response.data) {
         return res.status(error.response.status).json({ 
           message: 'Erro ao obter insights da campanha do Meta Ads',
-          error: error.response.data.error
+          error: error.response.data.error,
+          origin: 'facebook' 
         });
       }
       
@@ -848,6 +1257,302 @@ class IntegrationController {
     } catch (error) {
       console.error('Erro ao remover conta de anúncios:', error);
       next(error);
+    }
+  }
+
+  /**
+   * Get Meta Insights
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @param {Function} next - Express next middleware function
+   */
+  async getMetaInsights(req, res, next) {
+    try {
+      const userId = req.user.userId;
+      const { accountId, dateRange, fields, level, breakdowns } = req.body;
+      
+      // Ensure consistent response format
+      res.set('Content-Type', 'application/json');
+      
+      console.log('[IntegrationController] Buscando insights do Meta para usuário:', userId);
+      
+      // Validar campos obrigatórios
+      if (!accountId) {
+        return res.status(400).json({
+          message: 'ID da conta de anúncios é obrigatório',
+          error: 'missing_account_id',
+          success: false,
+          diagnostics: {
+            type: 'validation_error',
+            suggestion: 'Selecione uma conta de anúncios válida para continuar.'
+          },
+          insights: []
+        });
+      }
+      
+      if (!dateRange || !dateRange.since || !dateRange.until) {
+        return res.status(400).json({
+          message: 'Intervalo de datas é obrigatório (since e until)',
+          error: 'missing_date_range',
+          success: false,
+          diagnostics: {
+            type: 'validation_error',
+            suggestion: 'Por favor, selecione um período válido para buscar os dados.'
+          },
+          insights: []
+        });
+      }
+      
+      // Get Meta integration
+      const integrationResult = await this.pgPool.query(
+        'SELECT ui.id, ui.credentials FROM user_integrations ui ' +
+        'JOIN integration_sources int_src ON ui.source_id = int_src.id ' +
+        'WHERE ui.user_id = $1 AND int_src.name = $2 AND ui.is_connected = true',
+        [userId, 'meta_ads']
+      );
+      
+      if (integrationResult.rows.length === 0) {
+        console.log('[IntegrationController] Integração Meta Ads não encontrada para usuário:', userId);
+        return res.status(404).json({
+          message: 'Integração com Meta Ads não encontrada ou não está ativa',
+          error: 'integration_required',
+          success: false,
+          diagnostics: {
+            type: 'integration_missing',
+            suggestion: 'Você precisa conectar sua conta do Meta Ads antes de acessar os insights. Clique no botão "Conectar Meta Ads" para iniciar o processo de conexão.'
+          },
+          insights: []
+        });
+      }
+      
+      const integration = integrationResult.rows[0];
+      const credentials = integration.credentials;
+      
+      // Check if token exists
+      if (!credentials || !credentials.access_token) {
+        console.log('[IntegrationController] Token Meta Ads não encontrado para usuário:', userId);
+        return res.status(401).json({
+          message: 'Token do Meta Ads não encontrado. Por favor, reconecte sua conta.',
+          error: 'token_not_found',
+          success: false,
+          diagnostics: {
+            type: 'authentication_error',
+            suggestion: 'Suas credenciais do Meta Ads não foram encontradas. Clique em "Reconectar Meta Ads" para autorizar novamente.'
+          },
+          insights: []
+        });
+      }
+      
+      // Check if token is valid
+      if (credentials.expires_at && credentials.expires_at < Date.now()) {
+        console.log('[IntegrationController] Token Meta Ads expirado para usuário:', userId);
+        return res.status(401).json({
+          message: 'Token do Meta Ads expirou. Por favor, reconecte sua conta.',
+          error: 'token_expired',
+          success: false,
+          diagnostics: {
+            type: 'expired_token',
+            suggestion: 'Sua sessão com o Meta Ads expirou. Para continuar usando a integração, clique em "Reconectar Meta Ads".'
+          },
+          insights: []
+        });
+      }
+      
+      console.log('[IntegrationController] Chamando API de Insights do Meta Ads com parâmetros:', {
+        accountId,
+        dateRange,
+        fields: fields ? fields.slice(0, 5) : 'no fields specified',
+        level,
+        breakdowns: breakdowns ? breakdowns.slice(0, 3) : 'no breakdowns specified'
+      });
+      
+      // Fetch insights from Meta
+      const axios = require('axios');
+      const defaultFields = ['campaign_name', 'adset_name', 'ad_name', 'account_name', 'spend', 'impressions', 'clicks', 'reach', 'cpm', 'cpc', 'ctr'];
+      const insightsFields = fields && fields.length > 0 ? fields : defaultFields;
+      
+      try {
+        // Constrói a URL da API de insights
+        const apiEndpoint = `https://graph.facebook.com/v17.0/${accountId}/insights`;
+        
+        // Preparar parâmetros para a API
+        const apiParams = {
+          access_token: credentials.access_token,
+          time_range: JSON.stringify({
+            since: dateRange.since,
+            until: dateRange.until
+          }),
+          fields: insightsFields.join(','),
+          limit: 500 // Limite máximo de resultados
+        };
+        
+        // Adicionar level (campanha, adset, ad) se fornecido
+        if (level) {
+          apiParams.level = level;
+        }
+        
+        // Adicionar breakdowns se fornecidos
+        if (breakdowns && breakdowns.length > 0) {
+          apiParams.breakdowns = breakdowns.join(',');
+        }
+        
+        console.log('[IntegrationController] Realizando chamada para a API Meta Insights');
+        
+        const insightsResponse = await axios.get(apiEndpoint, {
+          params: apiParams,
+          timeout: 25000, // 25 segundos de timeout para relatórios grandes
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        console.log('[IntegrationController] Resposta da API Meta Insights recebida com sucesso:', {
+          hasData: !!insightsResponse.data,
+          dataLength: insightsResponse.data?.data?.length || 0
+        });
+        
+        if (!insightsResponse.data || !insightsResponse.data.data) {
+          console.warn('[IntegrationController] Resposta da API Meta Insights sem dados esperados');
+          return res.status(200).json({
+            insights: [],
+            success: true,
+            diagnostics: {
+              type: 'empty_response',
+              suggestion: 'Nenhum dado de performance foi encontrado para o período selecionado. Tente selecionar um período diferente ou verifique se há campanhas ativas na conta.'
+            }
+          });
+        }
+        
+        const insights = insightsResponse.data.data || [];
+        
+        // Log do tamanho dos dados
+        console.log('[IntegrationController] Retornando', insights.length, 'insights do Meta');
+        
+        return res.status(200).json({
+          insights: insights,
+          success: true
+        });
+      } catch (metaApiError) {
+        console.error('[IntegrationController] Erro na API de Insights do Meta:', metaApiError.message);
+        
+        // Verificar detalhes do erro da API Meta
+        const metaErrorResponse = metaApiError.response?.data?.error;
+        
+        // Preparar diagnóstico padrão
+        let diagnostics = {
+          type: 'api_error',
+          suggestion: 'Ocorreu um erro ao acessar os dados do Meta Ads. Tente novamente mais tarde.'
+        };
+        
+        let errorCode = 'meta_insights_error';
+        let statusCode = 400;
+        
+        if (metaErrorResponse) {
+          console.error('[IntegrationController] Erro detalhado da API Meta Insights:', {
+            type: metaErrorResponse.type,
+            message: metaErrorResponse.message,
+            code: metaErrorResponse.code,
+            fbtrace_id: metaErrorResponse.fbtrace_id
+          });
+          
+          // Diagnósticos específicos para diferentes tipos de erros da API Meta
+          if (metaErrorResponse.type === 'OAuthException') {
+            diagnostics = {
+              type: 'oauth_error',
+              suggestion: 'Sua autorização com o Meta Ads expirou ou foi revogada. Clique em "Reconectar Meta Ads" para autorizar novamente.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'oauth_error';
+            statusCode = 401;
+          } else if (metaErrorResponse.code === 4 || metaErrorResponse.code === 17 || (metaErrorResponse.message && metaErrorResponse.message.includes('rate limit'))) {
+            diagnostics = {
+              type: 'rate_limit',
+              suggestion: 'Você atingiu o limite de requisições para a API do Meta Ads. Aguarde alguns minutos e tente novamente.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'rate_limit_exceeded';
+            statusCode = 429;
+          } else if (metaErrorResponse.code === 10 || metaErrorResponse.type === 'PermissionError') {
+            diagnostics = {
+              type: 'permission_error',
+              suggestion: 'Você não tem permissão para acessar os dados desta conta. Verifique suas permissões no Business Manager do Meta Ads.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'permission_denied';
+            statusCode = 403;
+          } else if (metaErrorResponse.code === 100) {
+            // Código 100 geralmente indica um parâmetro inválido
+            diagnostics = {
+              type: 'parameter_error',
+              suggestion: 'Um ou mais parâmetros enviados são inválidos. Verifique o ID da conta e o intervalo de datas.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'invalid_parameter';
+          } else if (metaErrorResponse.code === 2 || (metaErrorResponse.message && metaErrorResponse.message.toLowerCase().includes('temporarily'))) {
+            diagnostics = {
+              type: 'service_unavailable',
+              suggestion: 'O serviço da API do Meta Ads está temporariamente indisponível. Tente novamente mais tarde.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'service_unavailable';
+            statusCode = 503;
+          } else if (metaErrorResponse.message && (metaErrorResponse.message.includes('date range') || metaErrorResponse.message.includes('time_range'))) {
+            diagnostics = {
+              type: 'date_range_error',
+              suggestion: 'O intervalo de datas fornecido é inválido. Verifique se as datas estão no formato correto (YYYY-MM-DD) e se o período não é muito extenso.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'invalid_date_range';
+          }
+          
+          // Se a conta não existe ou ID inválido
+          if (metaErrorResponse.message && metaErrorResponse.message.includes('Invalid account id')) {
+            diagnostics = {
+              type: 'invalid_account',
+              suggestion: 'O ID da conta de anúncios fornecido é inválido ou você não tem acesso a ela.',
+              error_details: metaErrorResponse.message
+            };
+            errorCode = 'invalid_account_id';
+          }
+          
+          console.log('[IntegrationController] Erro na API do Meta Insights diagnosticado como:', diagnostics.type);
+          
+          return res.status(statusCode).json({
+            message: 'Erro ao buscar insights do Meta Ads: ' + metaErrorResponse.message,
+            error: errorCode,
+            details: metaErrorResponse,
+            success: false,
+            diagnostics: diagnostics,
+            insights: []
+          });
+        }
+        
+        // Erro genérico da API Meta
+        return res.status(statusCode).json({
+          message: 'Erro ao buscar insights do Meta Ads',
+          error: errorCode,
+          details: metaApiError.message,
+          success: false,
+          diagnostics: diagnostics,
+          insights: []
+        });
+      }
+    } catch (error) {
+      console.error('[IntegrationController] Erro interno ao buscar insights do Meta:', error);
+      
+      // Garantir que a resposta seja JSON
+      res.set('Content-Type', 'application/json');
+      
+      res.status(500).json({
+        message: 'Erro interno ao buscar insights do Meta Ads',
+        error: 'internal_server_error',
+        success: false,
+        diagnostics: {
+          type: 'internal_error',
+          suggestion: 'Ocorreu um erro inesperado no servidor. Por favor, tente novamente mais tarde ou entre em contato com o suporte se o problema persistir.'
+        },
+        insights: []
+      });
     }
   }
 
@@ -915,23 +1620,110 @@ class IntegrationController {
   }
 
   /**
+   * Get Google Auth URL
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @param {Function} next - Express next middleware function
+   */
+  async getGoogleAuthUrl(req, res, next) {
+    try {
+      // Forçar cabeçalhos Content-Type para JSON
+      res.set('Content-Type', 'application/json');
+      
+      const userId = req.user.userId;
+      if (!userId) {
+        console.error('[IntegrationController] UserId inválido ao gerar URL Google Auth:', userId);
+        return res.status(400).json({
+          message: 'Usuário não encontrado',
+          error: 'user_not_found',
+          success: false,
+          diagnostics: {
+            type: 'authentication_error',
+            suggestion: 'Por favor, faça login novamente para continuar.'
+          }
+        });
+      }
+      
+      const { redirectUri } = req.query;
+      
+      // Validate environment variables
+      if (!process.env.GOOGLE_CLIENT_ID) {
+        console.error('[IntegrationController] Variável de ambiente GOOGLE_CLIENT_ID não configurada');
+        return res.status(500).json({
+          message: 'Configuração da integração com Google Analytics incompleta',
+          error: 'config_error',
+          success: false,
+          diagnostics: {
+            type: 'configuration_error',
+            suggestion: 'A integração com Google Analytics não está configurada corretamente no servidor. Entre em contato com o suporte.'
+          }
+        });
+      }
+      
+      // Gerar state token para prevenir CSRF
+      const stateToken = crypto.randomBytes(32).toString('hex');
+      
+      const useRedirectUri = redirectUri || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/connect-google/callback`;
+      
+      console.log('[IntegrationController] Gerando URL Google OAuth para usuário:', userId);
+      
+      // Store state token in Redis with expiration
+      await this.redisClient.set(`google_auth_state:${userId}`, stateToken, 'EX', 3600); // 1 hour
+      
+      // Constrói a URL de autenticação do Google
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&response_type=code&scope=https://www.googleapis.com/auth/analytics.readonly&redirect_uri=${encodeURIComponent(useRedirectUri)}&state=${stateToken}&access_type=offline&prompt=consent`;
+      
+      console.log('[IntegrationController] URL Google OAuth gerada com sucesso');
+      
+      return res.json({
+        authUrl,
+        success: true
+      });
+    } catch (error) {
+      console.error('[IntegrationController] Erro ao gerar URL Google Auth:', error);
+      
+      // Forçar cabeçalhos Content-Type para JSON
+      res.set('Content-Type', 'application/json');
+      
+      return res.status(500).json({
+        message: 'Erro ao gerar URL de autenticação do Google Analytics',
+        error: 'auth_url_generation_error',
+        success: false,
+        diagnostics: {
+          type: 'internal_error',
+          suggestion: 'Ocorreu um erro ao iniciar o processo de integração com o Google Analytics. Por favor, tente novamente mais tarde.'
+        }
+      });
+    }
+  }
+
+  /**
    * Get account status text based on status code
    * @param {number} statusCode - Account status code from Meta API
    * @returns {string} Status text
    * @private
    */
   _getAccountStatusText(statusCode) {
-    const statuses = {
-      1: 'Ativo',
-      2: 'Desativado',
-      3: 'Inativo',
-      7: 'Pendente de Revisão',
-      9: 'Em Revisão',
-      100: 'Fechado',
-      101: 'Qualquer'
-    };
-    
-    return statuses[statusCode] || 'Desconhecido';
+    switch (statusCode) {
+      case 1:
+        return 'Ativa';
+      case 2:
+        return 'Desativada';
+      case 3:
+        return 'Indisponível';
+      case 7:
+        return 'Pendente de Revisão';
+      case 8:
+        return 'Fechada';
+      case 9:
+        return 'Pendente de Fechamento';
+      case 100:
+        return 'Acesso Negado';
+      case 101:
+        return 'Removida';
+      default:
+        return 'Status Desconhecido';
+    }
   }
 }
 

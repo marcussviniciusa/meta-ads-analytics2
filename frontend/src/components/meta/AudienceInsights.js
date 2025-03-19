@@ -52,21 +52,154 @@ const AudienceInsights = ({ insights, loading }) => {
     if (insights && insights.length > 0) {
       setProcessingData(true);
       
-      // Process demographic data (simulated for now)
-      simulateDemographicData();
-      
-      // Process device and platform data (simulated for now)
-      simulateDeviceAndPlatformData();
-      
-      setProcessingData(false);
+      try {
+        // Process demographic data if available
+        // If not available in data structure, generate simulation
+        const hasDemographics = insights.some(insight => 
+          insight.age_breakdown || insight.gender_breakdown || insight.region_breakdown
+        );
+        
+        if (hasDemographics) {
+          processDemographicData(insights);
+        } else {
+          generateSimulatedDemographicData();
+        }
+        
+        // Process device data if available
+        const hasDeviceData = insights.some(insight => insight.device_breakdown);
+        
+        if (hasDeviceData) {
+          processDeviceData(insights);
+        } else {
+          generateSimulatedDeviceData();
+        }
+        
+        // Process platform data if available
+        const hasPlatformData = insights.some(insight => insight.platform_breakdown);
+        
+        if (hasPlatformData) {
+          processPlatformData(insights);
+        } else {
+          generateSimulatedPlatformData();
+        }
+      } catch (error) {
+        console.error('Erro ao processar dados de audiência:', error.message || 'Erro desconhecido');
+      } finally {
+        setProcessingData(false);
+      }
     }
   }, [insights]);
+
+  /**
+   * Process demographic data from API insights
+   */
+  const processDemographicData = (insights) => {
+    // Age groups
+    const ageData = insights.reduce((acc, insight) => {
+      if (insight.age_breakdown) {
+        Object.keys(insight.age_breakdown).forEach(ageRange => {
+          const value = insight.age_breakdown[ageRange];
+          const existingAge = acc.find(age => age.name === ageRange);
+          if (existingAge) {
+            existingAge.value += value;
+          } else {
+            acc.push({ name: ageRange, value });
+          }
+        });
+      }
+      return acc;
+    }, []);
+
+    // Gender
+    const genderData = insights.reduce((acc, insight) => {
+      if (insight.gender_breakdown) {
+        Object.keys(insight.gender_breakdown).forEach(gender => {
+          const value = insight.gender_breakdown[gender];
+          const existingGender = acc.find(gender => gender.name === gender);
+          if (existingGender) {
+            existingGender.value += value;
+          } else {
+            acc.push({ name: gender, value });
+          }
+        });
+      }
+      return acc;
+    }, []);
+
+    // Regions (Brazil)
+    const regionData = insights.reduce((acc, insight) => {
+      if (insight.region_breakdown) {
+        Object.keys(insight.region_breakdown).forEach(region => {
+          const value = insight.region_breakdown[region];
+          const existingRegion = acc.find(region => region.name === region);
+          if (existingRegion) {
+            existingRegion.value += value;
+          } else {
+            acc.push({ name: region, value });
+          }
+        });
+      }
+      return acc;
+    }, []);
+
+    setDemographicData({
+      age: ageData,
+      gender: genderData,
+      region: regionData
+    });
+  };
+
+  /**
+   * Process device data from API insights
+   */
+  const processDeviceData = (insights) => {
+    // Device types
+    const deviceTypes = insights.reduce((acc, insight) => {
+      if (insight.device_breakdown) {
+        Object.keys(insight.device_breakdown).forEach(device => {
+          const value = insight.device_breakdown[device];
+          const existingDevice = acc.find(device => device.name === device);
+          if (existingDevice) {
+            existingDevice.value += value;
+          } else {
+            acc.push({ name: device, value });
+          }
+        });
+      }
+      return acc;
+    }, []);
+
+    setDeviceData(deviceTypes);
+  };
+
+  /**
+   * Process platform data from API insights
+   */
+  const processPlatformData = (insights) => {
+    // Platforms
+    const platforms = insights.reduce((acc, insight) => {
+      if (insight.platform_breakdown) {
+        Object.keys(insight.platform_breakdown).forEach(platform => {
+          const value = insight.platform_breakdown[platform];
+          const existingPlatform = acc.find(platform => platform.name === platform);
+          if (existingPlatform) {
+            existingPlatform.value += value;
+          } else {
+            acc.push({ name: platform, value });
+          }
+        });
+      }
+      return acc;
+    }, []);
+
+    setPlatformData(platforms);
+  };
 
   /**
    * Simulate demographic data
    * In a real implementation, this would be replaced with actual Meta Ads demographic data
    */
-  const simulateDemographicData = () => {
+  const generateSimulatedDemographicData = () => {
     // Age groups
     const ageData = [
       { name: '18-24', value: 15 + Math.random() * 10 },
@@ -99,12 +232,12 @@ const AudienceInsights = ({ insights, loading }) => {
       region: regionData
     });
   };
-  
+
   /**
-   * Simulate device and platform data
-   * In a real implementation, this would be replaced with actual Meta Ads device and platform data
+   * Simulate device data
+   * In a real implementation, this would be replaced with actual Meta Ads device data
    */
-  const simulateDeviceAndPlatformData = () => {
+  const generateSimulatedDeviceData = () => {
     // Device types
     const deviceTypes = [
       { name: 'Mobile', value: 65 + Math.random() * 15 },
@@ -112,6 +245,14 @@ const AudienceInsights = ({ insights, loading }) => {
       { name: 'Tablet', value: 5 + Math.random() * 5 }
     ];
     
+    setDeviceData(deviceTypes);
+  };
+
+  /**
+   * Simulate platform data
+   * In a real implementation, this would be replaced with actual Meta Ads platform data
+   */
+  const generateSimulatedPlatformData = () => {
     // Platforms
     const platforms = [
       { name: 'Facebook', value: 45 + Math.random() * 15 },
@@ -120,10 +261,9 @@ const AudienceInsights = ({ insights, loading }) => {
       { name: 'Messenger', value: 5 + Math.random() * 5 }
     ];
     
-    setDeviceData(deviceTypes);
     setPlatformData(platforms);
   };
-  
+
   /**
    * Render demographic pie chart
    */
@@ -152,7 +292,7 @@ const AudienceInsights = ({ insights, loading }) => {
       </ResponsiveContainer>
     );
   };
-  
+
   /**
    * Custom label for pie chart
    */
@@ -174,7 +314,7 @@ const AudienceInsights = ({ insights, loading }) => {
       </text>
     );
   };
-  
+
   // If loading or processing, show progress
   if (loading || processingData) {
     return (
@@ -183,7 +323,7 @@ const AudienceInsights = ({ insights, loading }) => {
       </Box>
     );
   }
-  
+
   // If no data available
   if (!insights || insights.length === 0) {
     return (
@@ -196,120 +336,135 @@ const AudienceInsights = ({ insights, loading }) => {
       </Card>
     );
   }
-  
+
   return (
     <Box sx={{ mt: 2 }}>
-      <Card>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">
-              Insights de Audiência
-              <Tooltip title="Esta visualização mostra informações demográficas e de dispositivos da sua audiência no Meta Ads. Dados simulados para demonstração.">
-                <InfoIcon fontSize="small" sx={{ ml: 1, verticalAlign: 'middle', color: 'text.secondary' }} />
-              </Tooltip>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <>
+          {/* Indicador de dados simulados */}
+          {insights && insights.length > 0 && insights[0].campaign_name && insights[0].campaign_name.includes('simulado') && (
+            <Typography variant="body2" color="warning.main" sx={{ mb: 2, fontStyle: 'italic' }}>
+              * Os dados demográficos exibidos são simulados devido a problemas de comunicação com a API do Meta Ads
             </Typography>
-          </Box>
+          )}
           
-          <Divider sx={{ mb: 3 }} />
-          
-          {/* Demographics Section */}
-          <Typography variant="subtitle1" gutterBottom>
-            Distribuição Demográfica
-          </Typography>
-          
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid item xs={12} md={4}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2" align="center" gutterBottom>
-                  Idade
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6">
+                  Insights de Audiência
+                  <Tooltip title="Esta visualização mostra informações demográficas e de dispositivos da sua audiência no Meta Ads. Dados simulados para demonstração.">
+                    <InfoIcon fontSize="small" sx={{ ml: 1, verticalAlign: 'middle', color: 'text.secondary' }} />
+                  </Tooltip>
                 </Typography>
-                {renderPieChart(demographicData.age)}
-              </Paper>
-            </Grid>
-            
-            <Grid item xs={12} md={4}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2" align="center" gutterBottom>
-                  Gênero
-                </Typography>
-                {renderPieChart(demographicData.gender)}
-              </Paper>
-            </Grid>
-            
-            <Grid item xs={12} md={4}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2" align="center" gutterBottom>
-                  Região
-                </Typography>
-                {renderPieChart(demographicData.region)}
-              </Paper>
-            </Grid>
-          </Grid>
-          
-          {/* Device and Platform Section */}
-          <Typography variant="subtitle1" gutterBottom>
-            Distribuição por Dispositivo e Plataforma
-          </Typography>
-          
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2" align="center" gutterBottom>
-                  Tipo de Dispositivo
-                </Typography>
-                <Box sx={{ height: 250 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={deviceData}
-                      layout="vertical"
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="name" type="category" />
-                      <RechartsTooltip />
-                      <Legend />
-                      <Bar dataKey="value" name="Distribuição (%)" fill="#8884d8">
-                        {deviceData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Box>
-              </Paper>
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography variant="subtitle2" align="center" gutterBottom>
-                  Plataforma
-                </Typography>
-                <Box sx={{ height: 250 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={platformData}
-                      layout="vertical"
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="name" type="category" />
-                      <RechartsTooltip />
-                      <Legend />
-                      <Bar dataKey="value" name="Distribuição (%)" fill="#82ca9d">
-                        {platformData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Box>
-              </Paper>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+              </Box>
+              
+              <Divider sx={{ mb: 3 }} />
+              
+              {/* Demographics Section */}
+              <Typography variant="subtitle1" gutterBottom>
+                Distribuição Demográfica
+              </Typography>
+              
+              <Grid container spacing={3} sx={{ mb: 4 }}>
+                <Grid item xs={12} md={4}>
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Typography variant="subtitle2" align="center" gutterBottom>
+                      Idade
+                    </Typography>
+                    {renderPieChart(demographicData.age)}
+                  </Paper>
+                </Grid>
+                
+                <Grid item xs={12} md={4}>
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Typography variant="subtitle2" align="center" gutterBottom>
+                      Gênero
+                    </Typography>
+                    {renderPieChart(demographicData.gender)}
+                  </Paper>
+                </Grid>
+                
+                <Grid item xs={12} md={4}>
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Typography variant="subtitle2" align="center" gutterBottom>
+                      Região
+                    </Typography>
+                    {renderPieChart(demographicData.region)}
+                  </Paper>
+                </Grid>
+              </Grid>
+              
+              {/* Device and Platform Section */}
+              <Typography variant="subtitle1" gutterBottom>
+                Distribuição por Dispositivo e Plataforma
+              </Typography>
+              
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={6}>
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Typography variant="subtitle2" align="center" gutterBottom>
+                      Tipo de Dispositivo
+                    </Typography>
+                    <Box sx={{ height: 250 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={deviceData}
+                          layout="vertical"
+                          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis type="number" />
+                          <YAxis dataKey="name" type="category" />
+                          <RechartsTooltip />
+                          <Legend />
+                          <Bar dataKey="value" name="Distribuição (%)" fill="#8884d8">
+                            {deviceData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </Box>
+                  </Paper>
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Typography variant="subtitle2" align="center" gutterBottom>
+                      Plataforma
+                    </Typography>
+                    <Box sx={{ height: 250 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={platformData}
+                          layout="vertical"
+                          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis type="number" />
+                          <YAxis dataKey="name" type="category" />
+                          <RechartsTooltip />
+                          <Legend />
+                          <Bar dataKey="value" name="Distribuição (%)" fill="#82ca9d">
+                            {platformData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </Box>
+                  </Paper>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </Box>
   );
 };

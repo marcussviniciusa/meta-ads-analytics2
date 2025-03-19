@@ -170,11 +170,27 @@ class AuthService {
    * @returns {string} JWT token
    */
   generateToken(userId, email, role) {
-    return jwt.sign(
+    console.log('[AuthService] Gerando token JWT para:', { userId, email, role });
+    
+    const token = jwt.sign(
       { userId, email, role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
+    
+    // Verificar o payload para debug
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log('[AuthService] Token verificado:', { 
+        userId: decoded.userId,
+        email: decoded.email,
+        role: decoded.role
+      });
+    } catch (err) {
+      console.error('[AuthService] Erro ao verificar token gerado:', err);
+    }
+    
+    return token;
   }
 
   /**

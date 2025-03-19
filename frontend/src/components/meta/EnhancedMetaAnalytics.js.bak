@@ -32,6 +32,7 @@ const EnhancedMetaAnalytics = ({ accountId, dateRange, selectedCampaign }) => {
   const [insights, setInsights] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [audienceData, setAudienceData] = useState(null);
+  const [usingMockData, setUsingMockData] = useState(false);
   const [showDiagnosticTool, setShowDiagnosticTool] = useState(false);
   
   // Fetch data when params change
@@ -82,13 +83,17 @@ const EnhancedMetaAnalytics = ({ accountId, dateRange, selectedCampaign }) => {
           const campaignsResponse = await metaReportService.getCampaigns(accountId);
           const campaignsCount = campaignsResponse.campaigns?.length || 0;
           
+          // Verifica se estamos usando dados simulados
+          if (metaReportService.isMockData(campaignsResponse)) {
+            setUsingMockData(true);
+            console.log('EnhancedMetaAnalytics - Usando dados simulados para campanhas devido a erro na API');
+          }
+          
           setCampaigns(campaignsResponse.campaigns || []);
           console.log(`EnhancedMetaAnalytics - ${campaignsCount} campanhas carregadas`);
         } catch (campaignError) {
           console.error('Erro ao carregar campanhas:', campaignError.message || 'Erro desconhecido');
-          setError('Não foi possível carregar dados de campanhas: ' + campaignError.message);
-          setLoading(false);
-          return; // Interrompe a execução se não conseguir obter campanhas
+          // Continue even if campaigns fail to load
         }
       }
       
@@ -96,54 +101,54 @@ const EnhancedMetaAnalytics = ({ accountId, dateRange, selectedCampaign }) => {
       const campaignId = selectedCampaign && selectedCampaign !== 'all' ? selectedCampaign : null;
       console.log('EnhancedMetaAnalytics - Buscando insights', campaignId ? `para campanha: ${campaignId}` : 'para todas as campanhas');
       
-      try {
-        const insightsResponse = await metaReportService.getAccountInsights(
-          accountId,
-          startDateStr,
-          endDateStr,
-          campaignId
-        );
+      const insightsResponse = await metaReportService.getAccountInsights(
+        accountId,
+        startDateStr,
+        endDateStr,
+        campaignId
+      );
+      
+      // Verifica se estamos usando dados simulados
+      if (metaReportService.isMockData(insightsResponse)) {
+        setUsingMockData(true);
+        console.log('EnhancedMetaAnalytics - Usando dados simulados para insights devido a erro na API');
+      }
+      
+      // Log only the structure of the response, not the entire data
+      console.log('EnhancedMetaAnalytics - Estrutura de resposta de insights:', 
+        insightsResponse ? 
+          `${Object.keys(insightsResponse).join(', ')}` : 
+          'Resposta vazia');
+      
+      // Verify that insights data is valid
+      if (insightsResponse && Array.isArray(insightsResponse.insights)) {
+        setInsights(insightsResponse.insights);
         
-        // Log only the structure of the response, not the entire data
-        console.log('EnhancedMetaAnalytics - Estrutura de resposta de insights:', 
-          insightsResponse ? 
-            `${Object.keys(insightsResponse).join(', ')}` : 
-            'Resposta vazia');
-        
-        // Verify that insights data is valid
-        if (insightsResponse && Array.isArray(insightsResponse.insights)) {
-          setInsights(insightsResponse.insights);
-          
-          // Handle audience data
-          if (insightsResponse.audience_data) {
-            setAudienceData(insightsResponse.audience_data);
-          } else {
-            // Set audience data equal to insights if specific audience data not available
-            setTimeout(() => {
-              setAudienceData(insightsResponse.insights);
-            }, 500);
-          }
-        } else if (insightsResponse && typeof insightsResponse === 'object') {
-          // Handle case where API returns data in a different structure
-          const extractedInsights = extractInsightsFromResponse(insightsResponse);
-          setInsights(extractedInsights);
-          
-          // Set identical audience data
-          setTimeout(() => {
-            setAudienceData(extractedInsights);
-          }, 500);
+        // Handle audience data
+        if (insightsResponse.audience_data) {
+          setAudienceData(insightsResponse.audience_data);
         } else {
-          throw new Error('Formato de dados inválido recebido da API');
+          // Set audience data equal to insights if specific audience data not available
+          setTimeout(() => {
+            setAudienceData(insightsResponse.insights);
+          }, 500);
         }
-      } catch (err) {
-        console.error('Erro na análise Meta Ads:', err.message || 'Erro desconhecido');
-        setError(err.message || 'Erro ao carregar dados de análise avançada');
-      } finally {
-        setLoading(false);
+      } else if (insightsResponse && typeof insightsResponse === 'object') {
+        // Handle case where API returns data in a different structure
+        const extractedInsights = extractInsightsFromResponse(insightsResponse);
+        setInsights(extractedInsights);
+        
+        // Set identical audience data
+        setTimeout(() => {
+          setAudienceData(extractedInsights);
+        }, 500);
+      } else {
+        throw new Error('Formato de dados inválido recebido da API');
       }
     } catch (err) {
       console.error('Erro na análise Meta Ads:', err.message || 'Erro desconhecido');
       setError(err.message || 'Erro ao carregar dados de análise avançada');
+    } finally {
       setLoading(false);
     }
   };
@@ -200,8 +205,95 @@ const EnhancedMetaAnalytics = ({ accountId, dateRange, selectedCampaign }) => {
     );
   }
   
+  // Render error state
+  if (error) {
+    return (
+      <Alert 
+        severity="error" 
+        action={
+          <Button color="inherit" size="small" onClick={handleRefresh}>
+            Tentar novamente
+          </Button>
+        }
+      >
+        {error}
+      </Alert>
+    );
+  }
+  
   return (
     <Box sx={{ width: '100%' }}>
+      {usingMockData && (
+        <>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <AlertTitle>Usando dados simulados</AlertTitle>
+            Os dados exibidos são simulados devido a problemas de conexão com a API do Meta Ads. 
+            Por favor, verifique sua conexão e permissões da conta.
+          </Alert>
+          
+          <Box sx={{ mt: 2, mb: 3 }}>
+            <Collapse in={showDiagnosticTool}>
+              <Card sx={{ bgcolor: 'rgba(255, 235, 59, 0.05)', mb: 2 }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Ferramenta de Diagnóstico
+                  </Typography>
+                  <MetaApiDiagnosticTool accountId={accountId} />
+                  
+                  <Divider sx={{ my: 2 }} />
+                  
+                  <Typography variant="h6" gutterBottom>
+                    Possíveis Soluções
+                  </Typography>
+                  
+                  <Box component="ul" sx={{ pl: 2 }}>
+                    <Box component="li" sx={{ mb: 1 }}>
+                      <Typography variant="body2">
+                        <strong>Verifique as permissões da conta Meta Ads:</strong> Certifique-se que a conta tem permissões adequadas para acessar dados de campanhas e insights.
+                      </Typography>
+                    </Box>
+                    <Box component="li" sx={{ mb: 1 }}>
+                      <Typography variant="body2">
+                        <strong>Verifique o ID da conta:</strong> Confirme se o ID da conta fornecido ({accountId}) é válido e existe no Meta Ads.
+                      </Typography>
+                    </Box>
+                    <Box component="li" sx={{ mb: 1 }}>
+                      <Typography variant="body2">
+                        <strong>Token de acesso expirado:</strong> É possível que o token de acesso à API tenha expirado. Tente fazer logout e login novamente.
+                      </Typography>
+                    </Box>
+                    <Box component="li" sx={{ mb: 1 }}>
+                      <Typography variant="body2">
+                        <strong>Limites de API:</strong> O Meta Ads pode ter limitado o número de requisições. Aguarde alguns minutos e tente novamente.
+                      </Typography>
+                    </Box>
+                    <Box component="li">
+                      <Typography variant="body2">
+                        <strong>Verifique o formato das datas:</strong> O Meta Ads é sensível ao formato de datas. Verifique se o intervalo de datas selecionado é válido.
+                      </Typography>
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Collapse>
+            
+            <Button 
+              variant="outlined" 
+              color="warning" 
+              size="small"
+              onClick={() => setShowDiagnosticTool(!showDiagnosticTool)}
+              endIcon={<ExpandMoreIcon sx={{ 
+                transform: showDiagnosticTool ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.3s' 
+              }}/>}
+              sx={{ mb: 2 }}
+            >
+              {showDiagnosticTool ? 'Ocultar Diagnóstico' : 'Mostrar Ferramenta de Diagnóstico'}
+            </Button>
+          </Box>
+        </>
+      )}
+      
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           <AlertTitle>Erro ao carregar dados</AlertTitle>

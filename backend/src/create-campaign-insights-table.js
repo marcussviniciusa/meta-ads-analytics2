@@ -30,7 +30,7 @@ async function setupCampaignInsightsTable() {
       await client.query(`
         CREATE TABLE campaign_insights (
           id SERIAL PRIMARY KEY,
-          campaign_db_id INTEGER NOT NULL,
+          campaign_db_id BIGINT NOT NULL,
           campaign_id VARCHAR(255) NOT NULL,
           date_start DATE NOT NULL,
           date_stop DATE NOT NULL,
@@ -66,7 +66,7 @@ async function setupCampaignInsightsTable() {
         console.log('Adicionando coluna campaign_db_id à tabela campaign_insights...');
         await client.query(`
           ALTER TABLE campaign_insights 
-          ADD COLUMN campaign_db_id INTEGER NOT NULL DEFAULT 0;
+          ADD COLUMN campaign_db_id BIGINT NOT NULL DEFAULT 0;
         `);
         console.log('Coluna campaign_db_id adicionada com sucesso.');
       } else {

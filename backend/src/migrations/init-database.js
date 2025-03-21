@@ -70,7 +70,8 @@ async function initDatabase() {
         '04_create_integration_tables.sql',
         '05_add_role_and_company_tables.sql',
         '06_create_user_permissions_tables.sql',
-        '07_add_campaign_db_id_to_insights.sql'
+        '07_add_campaign_db_id_to_insights.sql',
+        '08_update_campaign_id_types.sql'
       ];
       
       for (const script of sqlScripts) {

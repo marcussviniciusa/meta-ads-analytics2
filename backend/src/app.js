@@ -77,13 +77,42 @@ app.get('/favicon.ico', (req, res) => {
 // Aplicar CORS antes do Helmet para evitar sobrescrever os cabeçalhos CORS
 app.use(cors({
   origin: function(origin, callback) {
+    // Log para debug da origem
+    console.log('[CORS] Origem da requisição:', origin);
+    
     // Permitir requisições sem origem (como apps móveis ou curl)
-    if (!origin) return callback(null, true);
-    callback(null, origin); // Retornar a origem específica na resposta
+    if (!origin) {
+      console.log('[CORS] Requisição sem origem identificada, permitindo acesso');
+      return callback(null, true);
+    }
+    
+    // Lista de origens permitidas
+    const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+      ? process.env.CORS_ALLOWED_ORIGINS.split(',')
+      : [
+          'https://app.speedfunnels.online',
+          'https://speedfunnels.online',
+          'https://www.speedfunnels.online',
+          'http://localhost:3000'
+        ];
+    
+    console.log('[CORS] Origens permitidas:', allowedOrigins);
+    
+    // Verificar se a origem está na lista de permitidas
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+      callback(null, origin);
+    } else {
+      console.log('[CORS] Origem não permitida, usando wildcard');
+      callback(null, '*'); // Responder com wildcard em vez de uma origem específica
+    }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Migration-Key'],
+  methods: process.env.CORS_ALLOWED_METHODS 
+    ? process.env.CORS_ALLOWED_METHODS.split(',') 
+    : ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: process.env.CORS_ALLOWED_HEADERS
+    ? process.env.CORS_ALLOWED_HEADERS.split(',')
+    : ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Migration-Key'],
   exposedHeaders: ['Content-Length', 'Content-Type']
 }));
 

@@ -60,9 +60,14 @@ module.exports = function(redisClient, pgPool) {
   router.get('/properties', authMiddleware, async (req, res) => {
     try {
       // Forçar cabeçalho Content-Type como application/json
-      res.set('Content-Type', 'application/json');
+      res.set('Content-Type', 'application/json; charset=utf-8');
+      // Adicionar headers CORS explicitamente para esta rota
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       
       console.log('[GoogleAnalyticsRoutes] Buscando propriedades GA para usuário:', req.user.userId);
+      console.log('[GoogleAnalyticsRoutes] Headers da requisição:', JSON.stringify(req.headers));
       
       const userId = req.user.userId; 
       const userRole = req.user.role;
@@ -73,7 +78,7 @@ module.exports = function(redisClient, pgPool) {
       // Retornar como array vazio se não houver propriedades
       if (!properties || !Array.isArray(properties)) {
         console.log('[GoogleAnalyticsRoutes] Nenhuma propriedade GA encontrada ou resposta inválida');
-        return res.status(200).json([]);
+        return res.status(200).json({ properties: [], success: true });
       }
       
       // Formatar propriedades para garantir campos consistentes
@@ -85,13 +90,18 @@ module.exports = function(redisClient, pgPool) {
         accountName: property.account_name || 'Conta GA'
       }));
       
-      // Retornar as propriedades formatadas
-      return res.status(200).json(formattedProperties);
+      console.log('[GoogleAnalyticsRoutes] Retornando resposta formatada com', formattedProperties.length, 'propriedades');
+      
+      // Retornar as propriedades formatadas no formato {properties: [...]}
+      return res.status(200).json({ 
+        properties: formattedProperties,
+        success: true
+      });
     } catch (error) {
       console.error('[GoogleAnalyticsRoutes] Erro ao obter propriedades do GA4:', error);
       
       // Forçar cabeçalho Content-Type como application/json mesmo em caso de erro
-      res.set('Content-Type', 'application/json');
+      res.set('Content-Type', 'application/json; charset=utf-8');
       
       // Verificar se é erro de autenticação
       if (error.message && (
@@ -101,7 +111,8 @@ module.exports = function(redisClient, pgPool) {
         return res.status(401).json({ 
           error: 'authentication_error', 
           message: 'Erro de autenticação com o Google Analytics. Reconecte sua conta.',
-          properties: []
+          properties: [],
+          success: false
         });
       }
       
@@ -109,7 +120,8 @@ module.exports = function(redisClient, pgPool) {
       return res.status(500).json({ 
         error: 'server_error', 
         message: 'Erro ao obter propriedades do GA4',
-        properties: []
+        properties: [],
+        success: false
       });
     }
   });

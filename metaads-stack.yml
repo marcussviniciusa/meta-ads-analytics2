@@ -35,7 +35,7 @@ services:
       
       # Configurações da integração com Meta
       META_REDIRECT_URI: "https://app.speedfunnels.online/connect-meta/callback"
-      META_API_VERSION: "v22.0"
+      META_API_VERSION: "v19.0"
       # Configurações do banco de dados - conectando-se aos serviços existentes
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -56,19 +56,6 @@ services:
       SUPER_ADMIN_EMAIL: admin@speedfunnels.marcussviniciusa.cloud
       SUPER_ADMIN_PASSWORD: Admin2025!
       MIGRATION_SECRET_KEY: speedfunnels_migration_key
-      # Configuração para forçar a migração do banco de dados
-      AUTO_MIGRATE: "true"
-      RUN_MIGRATIONS: "true"
-      INIT_DATABASE: "true"
-    # Comando para inicializar o banco de dados no startup
-    command: >
-      sh -c "
-        if [ \"$${INIT_DATABASE}\" = \"true\" ]; then
-          echo 'Inicializando banco de dados...' &&
-          node /app/src/migrations/init-database.js || echo 'Aviso: Não foi possível inicializar o banco de dados automaticamente.'
-        fi &&
-        npm start
-      "
     ports:
       - "8080:8080"
     networks:
@@ -80,40 +67,364 @@ services:
         - "traefik.enable=true"
         - "traefik.docker.network=SpeedFunnelsNet"
         
-        # Melhor definição de regras para a API
-        # Roteamento apenas para caminho /api
-        - "traefik.http.routers.meta-api.rule=Host(`api.speedfunnels.online`)"
-        - "traefik.http.routers.meta-api.entrypoints=web,websecure"
+        # Serviço para API
         - "traefik.http.services.meta-api-service.loadbalancer.server.port=8080"
         
-        # Rota HTTP para API com prioridade sobre outras rotas
-        - "traefik.http.routers.meta-api-http.rule=Host(`api.speedfunnels.online`)"
-        - "traefik.http.routers.meta-api-http.entrypoints=web"
-        - "traefik.http.routers.meta-api-http.service=meta-api-service"
-        - "traefik.http.routers.meta-api-http.priority=200"
+        # Configurações CORS básicas - usa valores expandidos para maior compatibilidade
+        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowOriginList=https://app.speedfunnels.online,https://speedfunnels.online,https://www.speedfunnels.online,http://localhost:3000"
+        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowMethods=GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowHeaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
+        - "traefik.http.middlewares.meta-cors.headers.accessControlAllowCredentials=true"
+        - "traefik.http.middlewares.meta-cors.headers.accessControlMaxAge=86400"
+        - "traefik.http.middlewares.meta-cors.headers.addVaryHeader=true"
         
-        # Rota HTTPS para API com prioridade sobre outras rotas
-        - "traefik.http.routers.meta-api-https.rule=Host(`api.speedfunnels.online`)"
-        - "traefik.http.routers.meta-api-https.entrypoints=websecure"
-        - "traefik.http.routers.meta-api-https.service=meta-api-service"
-        - "traefik.http.routers.meta-api-https.tls=true"
-        - "traefik.http.routers.meta-api-https.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.meta-api-https.priority=200"
+        # Middleware para forçar JSON para API
+        - "traefik.http.middlewares.force-json-api.headers.customResponseHeaders.Content-Type=application/json; charset=utf-8"
+        - "traefik.http.middlewares.force-json-api.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
+        - "traefik.http.middlewares.force-json-api.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online"
+        - "traefik.http.middlewares.force-json-api.headers.customResponseHeaders.Access-Control-Allow-Methods=GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+        - "traefik.http.middlewares.force-json-api.headers.customResponseHeaders.Access-Control-Allow-Headers=Origin,X-Requested-With,Content-Type,Accept,Authorization"
+        - "traefik.http.middlewares.force-json-api.headers.customResponseHeaders.Access-Control-Allow-Credentials=true"
         
-        # Middleware para garantir Content-Type application/json
-        - "traefik.http.middlewares.api-json-headers.headers.customResponseHeaders.Content-Type=application/json"
+        # Middleware para assegurar resposta JSON
+        - "traefik.http.middlewares.ensure-json.headers.customRequestHeaders.Accept=application/json"
+        - "traefik.http.middlewares.ensure-json.headers.customRequestHeaders.X-Requested-With=XMLHttpRequest"
+        - "traefik.http.middlewares.ensure-json.headers.customRequestHeaders.Content-Type=application/json"
         
-        # Configuração CORS específica para o app.speedfunnels.online
-        - "traefik.http.middlewares.cors-api.headers.accessControlAllowOriginList=https://app.speedfunnels.online,https://speedfunnels.online,https://www.speedfunnels.online,http://localhost:3000"
-        - "traefik.http.middlewares.cors-api.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
-        - "traefik.http.middlewares.cors-api.headers.accessControlAllowHeaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
-        - "traefik.http.middlewares.cors-api.headers.accessControlAllowCredentials=true"
-        - "traefik.http.middlewares.cors-api.headers.accessControlMaxAge=86400"
-        - "traefik.http.middlewares.cors-api.headers.addVaryHeader=true"
+        # Combinando middlewares para garantir JSON
+        - "traefik.http.middlewares.api-json-chain.chain.middlewares=ensure-json,force-json-api"
         
-        # Aplicando middleware de CORS e headers para ambas as rotas
-        - "traefik.http.routers.meta-api-http.middlewares=cors-api@docker,api-json-headers@docker"
-        - "traefik.http.routers.meta-api-https.middlewares=cors-api@docker,api-json-headers@docker"
+        # Middleware para depuração que adiciona headers identificando o roteador usado
+        - "traefik.http.middlewares.debug-headers.headers.customResponseHeaders.X-Matched-Router=router-debug"
+        - "traefik.http.middlewares.perms-meta-debug.headers.customResponseHeaders.X-Matched-Router=user-perms-meta"
+        - "traefik.http.middlewares.perms-ga-debug.headers.customResponseHeaders.X-Matched-Router=user-perms-ga"
+        - "traefik.http.middlewares.integrations-debug.headers.customResponseHeaders.X-Matched-Router=integrations-exact"
+        
+        # Middleware específico para endpoints UserPermissions.js
+        - "traefik.http.middlewares.user-perms-force-json.headers.customResponseHeaders.Content-Type=application/json; charset=utf-8"
+        - "traefik.http.middlewares.user-perms-force-json.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
+        - "traefik.http.middlewares.user-perms-force-json.headers.customResponseHeaders.X-Force-Json=true"
+        - "traefik.http.middlewares.user-perms-force-json.headers.customRequestHeaders.Accept=application/json"
+        - "traefik.http.middlewares.user-perms-force-json.headers.customRequestHeaders.X-Requested-With=XMLHttpRequest"
+        - "traefik.http.middlewares.user-perms-force-json.headers.customRequestHeaders.Content-Type=application/json; charset=utf-8"
+        
+        # Middleware para prevenir redirecionamentos que possam resultar em HTML
+        - "traefik.http.middlewares.no-redirect.headers.customResponseHeaders.X-No-Redirect=true"
+        - "traefik.http.middlewares.no-redirect.headers.customRequestHeaders.X-No-Redirect=true"
+        
+        # Middleware CORS global mais agressivo 
+        - "traefik.http.middlewares.global-cors.headers.accessControlAllowOriginList=https://app.speedfunnels.online,https://speedfunnels.online,https://www.speedfunnels.online,http://localhost:3000"
+        - "traefik.http.middlewares.global-cors.headers.accessControlAllowCredentials=true"
+        - "traefik.http.middlewares.global-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
+        - "traefik.http.middlewares.global-cors.headers.accessControlAllowHeaders=*"
+        - "traefik.http.middlewares.global-cors.headers.accessControlMaxAge=86400"
+        - "traefik.http.middlewares.global-cors.headers.addVaryHeader=true"
+        - "traefik.http.middlewares.global-cors.headers.accessControlExposeHeaders=*"
+        - "traefik.http.middlewares.global-cors.headers.customResponseHeaders.X-Apply-CORS-For-Status=400,401,403,404,405,500,503"
+        
+        # Middleware para resposta estática CORS para problemas 405
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Methods=GET, POST, PUT, DELETE, OPTIONS"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Headers=*"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Credentials=true"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Max-Age=86400"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Vary=Origin"
+        
+        # Middleware extremamente agressivo para forçar JSON em todas as condições
+        - "traefik.http.middlewares.ultra-force-json.headers.customResponseHeaders.Content-Type=application/json; charset=utf-8"
+        - "traefik.http.middlewares.ultra-force-json.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
+        - "traefik.http.middlewares.ultra-force-json.headers.customResponseHeaders.X-Force-Json=true"
+        - "traefik.http.middlewares.ultra-force-json.headers.customRequestHeaders.Accept=application/json"
+        - "traefik.http.middlewares.ultra-force-json.headers.customRequestHeaders.X-Requested-With=XMLHttpRequest"
+        - "traefik.http.middlewares.ultra-force-json.headers.customRequestHeaders.Content-Type=application/json; charset=utf-8"
+        - "traefik.http.middlewares.ultra-force-json.headers.customRequestHeaders.Cache-Control=no-cache, no-store, must-revalidate"
+        - "traefik.http.middlewares.ultra-force-json.headers.customRequestHeaders.Pragma=no-cache"
+        
+        # Middleware para forçar o tipo MIME de resposta para application/json
+        - "traefik.http.middlewares.force-json-mime.plugin.mime-converter.from=text/html"
+        - "traefik.http.middlewares.force-json-mime.plugin.mime-converter.to=application/json"
+        
+        # Middleware para reescrever HTML para JSON
+        - "traefik.http.middlewares.wrap-html-as-json.plugin.respmod.rewrites.0.regex=^<!doctype html>(.*)</html>$$"
+        - "traefik.http.middlewares.wrap-html-as-json.plugin.respmod.rewrites.0.replacement={\"error\":\"HTML response instead of JSON\",\"htmlContent\":\"HTML content removed\"}"
+        
+        # Middleware específico para rota de login
+        - "traefik.http.middlewares.login-cors.headers.accessControlAllowOriginList=https://app.speedfunnels.online,http://localhost:3000"
+        - "traefik.http.middlewares.login-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
+        - "traefik.http.middlewares.login-cors.headers.accessControlAllowHeaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
+        - "traefik.http.middlewares.login-cors.headers.accessControlAllowCredentials=true"
+        - "traefik.http.middlewares.login-cors.headers.accessControlMaxAge=86400"
+        - "traefik.http.middlewares.login-cors.headers.addVaryHeader=true"
+        - "traefik.http.middlewares.login-cors.headers.accessControlExposeHeaders=*"
+        - "traefik.http.middlewares.login-cors.headers.customResponseHeaders.X-Apply-CORS-For-Status=401,403,404,500,503"
+        - "traefik.http.middlewares.login-cors.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online"
+        
+        # Middleware para respostas de erro Method Not Allowed (405)
+        - "traefik.http.middlewares.method-not-allowed.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online,http://localhost:3000"
+        - "traefik.http.middlewares.method-not-allowed.headers.customResponseHeaders.Access-Control-Allow-Methods=GET,POST,PUT,DELETE,OPTIONS"
+        - "traefik.http.middlewares.method-not-allowed.headers.customResponseHeaders.Access-Control-Allow-Headers=Origin,X-Requested-With,Content-Type,Accept,Authorization"
+        - "traefik.http.middlewares.method-not-allowed.headers.customResponseHeaders.Access-Control-Allow-Credentials=true"
+        - "traefik.http.middlewares.method-not-allowed.headers.customResponseHeaders.X-Apply-CORS-For-Status=405"
+        - "traefik.http.middlewares.method-not-allowed.headers.customResponseHeaders.Content-Type=application/json; charset=utf-8"
+        
+        # Rota ultra-específica para UserPermissions.js - meta-ads/accounts (abordagem extrema)
+        - "traefik.http.routers.user-perms-meta-extreme.rule=Host(`api.speedfunnels.online`) && Method(`GET`) && Path(`/api/integrations/meta-ads/accounts`) && Headers(`Accept`, `application/json`)"
+        - "traefik.http.routers.user-perms-meta-extreme.entrypoints=websecure"
+        - "traefik.http.routers.user-perms-meta-extreme.service=meta-api-service"
+        - "traefik.http.routers.user-perms-meta-extreme.tls=true"
+        - "traefik.http.routers.user-perms-meta-extreme.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.user-perms-meta-extreme.priority=14000"
+        - "traefik.http.routers.user-perms-meta-extreme.middlewares=ultra-force-json@docker,no-redirect@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Rota ultra-específica para UserPermissions.js - google-analytics/properties (abordagem extrema)
+        - "traefik.http.routers.user-perms-ga-extreme.rule=Host(`api.speedfunnels.online`) && Method(`GET`) && Path(`/api/integrations/google-analytics/properties`) && Headers(`Accept`, `application/json`)"
+        - "traefik.http.routers.user-perms-ga-extreme.entrypoints=websecure"
+        - "traefik.http.routers.user-perms-ga-extreme.service=meta-api-service"
+        - "traefik.http.routers.user-perms-ga-extreme.tls=true"
+        - "traefik.http.routers.user-perms-ga-extreme.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.user-perms-ga-extreme.priority=14000"
+        - "traefik.http.routers.user-perms-ga-extreme.middlewares=ultra-force-json@docker,no-redirect@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Endpoint específico para UserPermissions.js - meta-ads/accounts (PRIORIDADE MÁXIMA)
+        - "traefik.http.routers.user-perms-meta.rule=Host(`api.speedfunnels.online`) && Path(`/api/integrations/meta-ads/accounts`)"
+        - "traefik.http.routers.user-perms-meta.entrypoints=websecure"
+        - "traefik.http.routers.user-perms-meta.service=meta-api-service"
+        - "traefik.http.routers.user-perms-meta.tls=true"
+        - "traefik.http.routers.user-perms-meta.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.user-perms-meta.priority=12000"
+        - "traefik.http.routers.user-perms-meta.middlewares=user-perms-force-json@docker,perms-meta-debug@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Rota alternativa para UserPermissions.js - meta-ads/accounts (abordagem direta) 
+        - "traefik.http.routers.user-perms-meta-direct.rule=Host(`api.speedfunnels.online`) && Method(`GET`) && Path(`/api/integrations/meta-ads/accounts`)"
+        - "traefik.http.routers.user-perms-meta-direct.entrypoints=websecure"
+        - "traefik.http.routers.user-perms-meta-direct.service=meta-api-service"
+        - "traefik.http.routers.user-perms-meta-direct.tls=true"
+        - "traefik.http.routers.user-perms-meta-direct.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.user-perms-meta-direct.priority=13000"
+        - "traefik.http.routers.user-perms-meta-direct.middlewares=ultra-force-json@docker,no-redirect@docker,perms-meta-debug@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Endpoint específico para UserPermissions.js - google-analytics/properties (PRIORIDADE MÁXIMA)
+        - "traefik.http.routers.user-perms-ga.rule=Host(`api.speedfunnels.online`) && Path(`/api/integrations/google-analytics/properties`)"
+        - "traefik.http.routers.user-perms-ga.entrypoints=websecure"
+        - "traefik.http.routers.user-perms-ga.service=meta-api-service"
+        - "traefik.http.routers.user-perms-ga.tls=true"
+        - "traefik.http.routers.user-perms-ga.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.user-perms-ga.priority=12000"
+        - "traefik.http.routers.user-perms-ga.middlewares=user-perms-force-json@docker,perms-ga-debug@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Rota alternativa para UserPermissions.js - google-analytics/properties (abordagem direta)
+        - "traefik.http.routers.user-perms-ga-direct.rule=Host(`api.speedfunnels.online`) && Method(`GET`) && Path(`/api/integrations/google-analytics/properties`)"
+        - "traefik.http.routers.user-perms-ga-direct.entrypoints=websecure"
+        - "traefik.http.routers.user-perms-ga-direct.service=meta-api-service"
+        - "traefik.http.routers.user-perms-ga-direct.tls=true"
+        - "traefik.http.routers.user-perms-ga-direct.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.user-perms-ga-direct.priority=13000"
+        - "traefik.http.routers.user-perms-ga-direct.middlewares=ultra-force-json@docker,no-redirect@docker,perms-ga-debug@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Endpoint específico para api/integrations exato (PRIORIDADE ALTA)
+        - "traefik.http.routers.integrations-exact.rule=Host(`api.speedfunnels.online`) && Path(`/api/integrations`)"
+        - "traefik.http.routers.integrations-exact.entrypoints=websecure"
+        - "traefik.http.routers.integrations-exact.service=meta-api-service"
+        - "traefik.http.routers.integrations-exact.tls=true"
+        - "traefik.http.routers.integrations-exact.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.integrations-exact.priority=11000"
+        - "traefik.http.routers.integrations-exact.middlewares=api-json-chain@docker,integrations-debug@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração específica para contas Meta (PRIORIDADE ALTA)
+        - "traefik.http.routers.meta-accounts.rule=Host(`api.speedfunnels.online`) && (Path(`/api/integrations/meta/accounts`) || Path(`/api/integrations/meta-ads/accounts`))"
+        - "traefik.http.routers.meta-accounts.entrypoints=websecure"
+        - "traefik.http.routers.meta-accounts.service=meta-api-service"
+        - "traefik.http.routers.meta-accounts.tls=true"
+        - "traefik.http.routers.meta-accounts.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.meta-accounts.priority=10000"
+        - "traefik.http.routers.meta-accounts.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração específica para propriedades Google Analytics (PRIORIDADE ALTA)
+        - "traefik.http.routers.ga-properties.rule=Host(`api.speedfunnels.online`) && Path(`/api/integrations/google-analytics/properties`)"
+        - "traefik.http.routers.ga-properties.entrypoints=websecure"
+        - "traefik.http.routers.ga-properties.service=meta-api-service"
+        - "traefik.http.routers.ga-properties.tls=true"
+        - "traefik.http.routers.ga-properties.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.ga-properties.priority=10000"
+        - "traefik.http.routers.ga-properties.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração para demais rotas de integração (PRIORIDADE MÉDIA)
+        - "traefik.http.routers.other-integrations.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api/integrations`)"
+        - "traefik.http.routers.other-integrations.entrypoints=websecure"
+        - "traefik.http.routers.other-integrations.service=meta-api-service"
+        - "traefik.http.routers.other-integrations.tls=true"
+        - "traefik.http.routers.other-integrations.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.other-integrations.priority=7000"
+        - "traefik.http.routers.other-integrations.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração para status das integrações (PRIORIDADE MÉDIA)
+        - "traefik.http.routers.integration-status.rule=Host(`api.speedfunnels.online`) && (Path(`/api/integrations/meta/status`) || Path(`/api/integrations/google-analytics/status`) || Path(`/api/integrations/meta-ads/status`))"
+        - "traefik.http.routers.integration-status.entrypoints=websecure"
+        - "traefik.http.routers.integration-status.service=meta-api-service"
+        - "traefik.http.routers.integration-status.tls=true"
+        - "traefik.http.routers.integration-status.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.integration-status.priority=8000"
+        - "traefik.http.routers.integration-status.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração geral para todos os endpoints do Google Analytics (PRIORIDADE MÉDIA)
+        - "traefik.http.routers.ga-all.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api/integrations/google-analytics`)"
+        - "traefik.http.routers.ga-all.entrypoints=websecure"
+        - "traefik.http.routers.ga-all.service=meta-api-service"
+        - "traefik.http.routers.ga-all.tls=true"
+        - "traefik.http.routers.ga-all.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.ga-all.priority=5000"
+        - "traefik.http.routers.ga-all.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração para qualquer endpoint de Meta (incluindo meta-ads) (PRIORIDADE MÉDIA)
+        - "traefik.http.routers.meta-all.rule=Host(`api.speedfunnels.online`) && (PathPrefix(`/api/integrations/meta`) || PathPrefix(`/api/integrations/meta-ads`))"
+        - "traefik.http.routers.meta-all.entrypoints=websecure"
+        - "traefik.http.routers.meta-all.service=meta-api-service"
+        - "traefik.http.routers.meta-all.tls=true"
+        - "traefik.http.routers.meta-all.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.meta-all.priority=4000"
+        - "traefik.http.routers.meta-all.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração para todas as integrações (PRIORIDADE MÉDIA)
+        - "traefik.http.routers.integrations-all.rule=Host(`api.speedfunnels.online`) && Path(`/api/integrations`)"
+        - "traefik.http.routers.integrations-all.entrypoints=websecure"
+        - "traefik.http.routers.integrations-all.service=meta-api-service"
+        - "traefik.http.routers.integrations-all.tls=true"
+        - "traefik.http.routers.integrations-all.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.integrations-all.priority=6000"
+        - "traefik.http.routers.integrations-all.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker"
+        
+        # Configuração geral para API (PRIORIDADE BAIXA)
+        - "traefik.http.routers.api-general.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.api-general.entrypoints=websecure"
+        - "traefik.http.routers.api-general.service=meta-api-service"
+        - "traefik.http.routers.api-general.tls=true"
+        - "traefik.http.routers.api-general.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.api-general.priority=3000"
+        - "traefik.http.routers.api-general.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker,error-middleware@docker"
+        
+        # Rota específica para autenticação
+        - "traefik.http.routers.auth.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api/auth`)"
+        - "traefik.http.routers.auth.entrypoints=websecure"
+        - "traefik.http.routers.auth.service=meta-api-service"
+        - "traefik.http.routers.auth.tls=true"
+        - "traefik.http.routers.auth.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.auth.priority=16000"
+        - "traefik.http.routers.auth.middlewares=global-cors@docker,login-cors@docker,error-middleware@docker,direct-cors@docker,all-response-cors@docker,brute-force-cors@docker,options-success@docker"
+        
+        # Rota ultra-específica para login
+        - "traefik.http.routers.login-route.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api/auth/login`)"
+        - "traefik.http.routers.login-route.entrypoints=websecure"
+        - "traefik.http.routers.login-route.service=meta-api-service"
+        - "traefik.http.routers.login-route.tls=true"
+        - "traefik.http.routers.login-route.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.login-route.priority=16000"
+        - "traefik.http.routers.login-route.middlewares=meta-cors@docker,global-cors@docker,login-cors@docker,error-middleware@docker,direct-cors@docker,all-response-cors@docker,brute-force-cors@docker,options-success@docker"
+        
+        # Middleware para resposta estática CORS para problemas 405
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Methods=GET, POST, PUT, DELETE, OPTIONS"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Headers=*"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Allow-Credentials=true"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Access-Control-Max-Age=86400"
+        - "traefik.http.middlewares.direct-cors.headers.customResponseHeaders.Vary=Origin"
+        
+        # Middleware ultra-direto para CORS que aplica cabeçalhos a TODAS as respostas
+        - "traefik.http.middlewares.all-response-cors.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online"
+        - "traefik.http.middlewares.all-response-cors.headers.customResponseHeaders.Access-Control-Allow-Methods=GET,POST,PUT,DELETE,OPTIONS"
+        - "traefik.http.middlewares.all-response-cors.headers.customResponseHeaders.Access-Control-Allow-Headers=*"
+        - "traefik.http.middlewares.all-response-cors.headers.customResponseHeaders.Access-Control-Allow-Credentials=true"
+        - "traefik.http.middlewares.all-response-cors.headers.customResponseHeaders.Access-Control-Max-Age=86400"
+        - "traefik.http.middlewares.all-response-cors.headers.customResponseHeaders.Vary=Origin"
+        
+        # Middleware CORS super agressivo - última tentativa
+        - "traefik.http.middlewares.brute-force-cors.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online"
+        - "traefik.http.middlewares.brute-force-cors.headers.customResponseHeaders.Access-Control-Allow-Methods=GET, POST, PUT, DELETE, OPTIONS"
+        - "traefik.http.middlewares.brute-force-cors.headers.customResponseHeaders.Access-Control-Allow-Headers=*"
+        - "traefik.http.middlewares.brute-force-cors.headers.customResponseHeaders.Access-Control-Allow-Credentials=true"
+        - "traefik.http.middlewares.brute-force-cors.headers.customResponseHeaders.Access-Control-Max-Age=86400"
+        - "traefik.http.middlewares.brute-force-cors.headers.customResponseHeaders.Vary=Origin"
+        
+        # Middleware para retornar status 200 para qualquer requisição OPTIONS
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Content-Type=application/json"
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Content-Length=0"
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Access-Control-Allow-Origin=https://app.speedfunnels.online"
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Access-Control-Allow-Methods=GET, POST, PUT, DELETE, OPTIONS"
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Access-Control-Allow-Headers=*"
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Access-Control-Allow-Credentials=true"
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Access-Control-Max-Age=86400"
+        - "traefik.http.middlewares.options-success.headers.customResponseHeaders.Vary=Origin"
+        
+        # Rota para requisições OPTIONS (preflight CORS)
+        - "traefik.http.routers.preflight-options.rule=Host(`api.speedfunnels.online`) && Method(`OPTIONS`)"
+        - "traefik.http.routers.preflight-options.entrypoints=websecure"
+        - "traefik.http.routers.preflight-options.service=meta-api-service"
+        - "traefik.http.routers.preflight-options.tls=true"
+        - "traefik.http.routers.preflight-options.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.preflight-options.priority=15000"
+        - "traefik.http.routers.preflight-options.middlewares=preflight-cors@docker,global-cors@docker,error-middleware@docker,direct-cors@docker,all-response-cors@docker,brute-force-cors@docker,options-success@docker"
+        
+        # Rota OPTIONS específica para integrations - última tentativa
+        - "traefik.http.routers.integrations-options.rule=Host(`api.speedfunnels.online`) && Method(`OPTIONS`) && PathPrefix(`/api/integrations`)"
+        - "traefik.http.routers.integrations-options.entrypoints=websecure"
+        - "traefik.http.routers.integrations-options.service=meta-api-service"
+        - "traefik.http.routers.integrations-options.tls=true"
+        - "traefik.http.routers.integrations-options.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.integrations-options.priority=25000"
+        - "traefik.http.routers.integrations-options.middlewares=brute-force-cors@docker,options-success@docker"
+        
+        # Rota específica para /api/ad-accounts que estava dando erro 405
+        - "traefik.http.routers.ad-accounts.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api/ad-accounts`) && Method(`GET`, `OPTIONS`)"
+        - "traefik.http.routers.ad-accounts.entrypoints=websecure"
+        - "traefik.http.routers.ad-accounts.service=meta-api-service"
+        - "traefik.http.routers.ad-accounts.tls=true"
+        - "traefik.http.routers.ad-accounts.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.ad-accounts.priority=19000"
+        - "traefik.http.routers.ad-accounts.middlewares=brute-force-cors@docker,direct-cors@docker,all-response-cors@docker,global-cors@docker,options-success@docker,method-not-allowed@docker,error-middleware@docker"
+        
+        # Rotas de integração específicas para endpoints que estão resultando em erro 405
+        - "traefik.http.routers.integrations-api.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api/integrations`) && Method(`GET`, `POST`, `OPTIONS`)"
+        - "traefik.http.routers.integrations-api.entrypoints=websecure"
+        - "traefik.http.routers.integrations-api.service=meta-api-service"
+        - "traefik.http.routers.integrations-api.tls=true"
+        - "traefik.http.routers.integrations-api.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.integrations-api.priority=17000"
+        - "traefik.http.routers.integrations-api.middlewares=global-cors@docker,login-cors@docker,preflight-cors@docker,wrap-html-as-json@docker,method-not-allowed@docker,error-middleware@docker,direct-cors@docker,all-response-cors@docker"
+        
+        # Rota específica para meta-ads auth-url (usada para iniciar conexão)
+        - "traefik.http.routers.meta-auth-url.rule=Host(`api.speedfunnels.online`) && Path(`/api/integrations/meta-ads/auth-url`) && Method(`GET`, `OPTIONS`)"
+        - "traefik.http.routers.meta-auth-url.entrypoints=websecure"
+        - "traefik.http.routers.meta-auth-url.service=meta-api-service"
+        - "traefik.http.routers.meta-auth-url.tls=true"
+        - "traefik.http.routers.meta-auth-url.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.meta-auth-url.priority=18000"
+        - "traefik.http.routers.meta-auth-url.middlewares=global-cors@docker,login-cors@docker,preflight-cors@docker,wrap-html-as-json@docker,method-not-allowed@docker,error-middleware@docker,direct-cors@docker,all-response-cors@docker,brute-force-cors@docker,options-success@docker"
+        
+        # Criar serviço específico para integração que apenas retorna cabeçalhos CORS
+        - "traefik.http.services.integrations-cors-service.loadbalancer.server.port=8080"  
+        - "traefik.http.services.integrations-cors-service.loadbalancer.server.scheme=http"
+        
+        # Super rota de último recurso especificamente para /api/integrations
+        - "traefik.http.routers.integrations-extreme.rule=Host(`api.speedfunnels.online`) && PathPrefix(`/api/integrations`)"
+        - "traefik.http.routers.integrations-extreme.entrypoints=websecure"
+        - "traefik.http.routers.integrations-extreme.service=meta-api-service"
+        - "traefik.http.routers.integrations-extreme.tls=true"
+        - "traefik.http.routers.integrations-extreme.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.integrations-extreme.priority=20000"
+        - "traefik.http.routers.integrations-extreme.middlewares=brute-force-cors@docker,direct-cors@docker,all-response-cors@docker,global-cors@docker,options-success@docker"
+        
+        # Configuração para tratar especificamente erros 405 Method Not Allowed
+        - "traefik.http.middlewares.error-middleware.errors.status=400-599"
+        - "traefik.http.middlewares.error-middleware.errors.service=meta-api-service"
+        - "traefik.http.middlewares.error-middleware.errors.query=/api/error?code={status}"
+        
+        # Fallback para capturar outras rotas (PRIORIDADE MAIS BAIXA)
+        - "traefik.http.routers.api-catch-all.rule=Host(`api.speedfunnels.online`)"
+        - "traefik.http.routers.api-catch-all.entrypoints=websecure"
+        - "traefik.http.routers.api-catch-all.service=meta-api-service"
+        - "traefik.http.routers.api-catch-all.tls=true"
+        - "traefik.http.routers.api-catch-all.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.api-catch-all.priority=1"
+        - "traefik.http.routers.api-catch-all.middlewares=meta-cors@docker,api-json-chain@docker,force-json-mime@docker,wrap-html-as-json@docker,global-cors@docker,brute-force-cors@docker,options-success@docker"
 
   frontend:
     image: marcussviniciusa/meta-ads-frontend:test
@@ -122,7 +433,6 @@ services:
     environment:
       <<: *default-env
       NODE_ENV: production
-      # Suportando ambos HTTP e HTTPS
       REACT_APP_API_URL: "https://api.speedfunnels.online/api"
       REACT_APP_FACEBOOK_APP_ID: 4190441111244279
     networks:
@@ -137,35 +447,19 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=SpeedFunnelsNet"
-        
-        # Configuração separada para HTTP e HTTPS
-        # Rota HTTP para o frontend
-        - "traefik.http.routers.meta-frontend-http.rule=Host(`app.speedfunnels.online`)"
-        - "traefik.http.routers.meta-frontend-http.entrypoints=web"
-        - "traefik.http.routers.meta-frontend-http.service=meta-frontend-service"
-        
-        # Rota HTTPS para o frontend
-        - "traefik.http.routers.meta-frontend-https.rule=Host(`app.speedfunnels.online`)"
-        - "traefik.http.routers.meta-frontend-https.entrypoints=websecure"
-        - "traefik.http.routers.meta-frontend-https.service=meta-frontend-service"
-        - "traefik.http.routers.meta-frontend-https.tls=true"
-        - "traefik.http.routers.meta-frontend-https.tls.certresolver=letsencryptresolver"
-        
-        # Configuração explícita do serviço
-        - "traefik.http.services.meta-frontend-service.loadbalancer.server.port=80"
-        
+        # Roteamento para o frontend
+        - "traefik.http.routers.meta-frontend.rule=Host(`app.speedfunnels.online`)"
+        - "traefik.http.routers.meta-frontend.entrypoints=websecure"
+        - "traefik.http.services.meta-frontend.loadbalancer.server.port=80"
+        # Aplicando o middleware CORS
+        - "traefik.http.routers.meta-frontend.middlewares=meta-cors@docker,global-cors@docker"
+        - "traefik.http.routers.meta-frontend.tls.certresolver=letsencryptresolver"
         # Configuração para o domínio principal (MAIN_DOMAIN)
-        # HTTP
-        - "traefik.http.routers.meta-main-http.rule=Host(`speedfunnels.online`) || Host(`www.speedfunnels.online`)"
-        - "traefik.http.routers.meta-main-http.entrypoints=web"
-        - "traefik.http.routers.meta-main-http.service=meta-frontend-service"
-        
-        # HTTPS
-        - "traefik.http.routers.meta-main-https.rule=Host(`speedfunnels.online`) || Host(`www.speedfunnels.online`)"
-        - "traefik.http.routers.meta-main-https.entrypoints=websecure"
-        - "traefik.http.routers.meta-main-https.service=meta-frontend-service"
-        - "traefik.http.routers.meta-main-https.tls=true"
-        - "traefik.http.routers.meta-main-https.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.meta-main.rule=Host(`speedfunnels.online`)"
+        - "traefik.http.routers.meta-main.entrypoints=websecure"
+        - "traefik.http.routers.meta-main.service=meta-frontend"
+        - "traefik.http.routers.meta-main.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.meta-main.middlewares=meta-cors@docker,global-cors@docker"
 
 networks:
   SpeedFunnelsNet:

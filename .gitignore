@@ -37,4 +37,6 @@ logs
 .npm
 
 # Backup
-/backup
+/backups
+/ga_fixes_backup_20250317142025
+/ga_fixes_backup_20250317142424

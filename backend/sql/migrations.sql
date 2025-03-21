@@ -79,7 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_campaigns_campaign_id ON campaigns(campaign_id);
 -- Criando campaign_insights
 CREATE TABLE IF NOT EXISTS campaign_insights (
   id SERIAL PRIMARY KEY,
-  campaign_id INTEGER NOT NULL,
+  campaign_id VARCHAR(100) NOT NULL,
   ad_account_id INTEGER NOT NULL,
   date_start DATE NOT NULL,
   date_stop DATE NOT NULL,
@@ -100,7 +100,6 @@ CREATE TABLE IF NOT EXISTS campaign_insights (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(campaign_id, date_start, date_stop),
-  FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
   FOREIGN KEY (ad_account_id) REFERENCES ad_accounts(id) ON DELETE CASCADE
 );
 
@@ -162,6 +161,118 @@ VALUES
   ('meta_ads', 'Meta Ads', 'Integração com Meta (Facebook e Instagram) Ads', TRUE),
   ('google_analytics', 'Google Analytics', 'Integração com Google Analytics', FALSE)
 ON CONFLICT (name) DO NOTHING;
+
+-- Correções para a tabela campaign_insights
+DO $$
+BEGIN
+    -- Adicionar a coluna account_id na tabela campaign_insights se não existir
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'campaign_insights' 
+        AND column_name = 'account_id'
+    ) THEN
+        ALTER TABLE campaign_insights ADD COLUMN account_id VARCHAR(100);
+        RAISE NOTICE 'Coluna account_id adicionada à tabela campaign_insights';
+    END IF;
+
+    -- Adicionar a coluna campaign_db_id na tabela campaign_insights se não existir
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'campaign_insights' 
+        AND column_name = 'campaign_db_id'
+    ) THEN
+        ALTER TABLE campaign_insights ADD COLUMN campaign_db_id BIGINT;
+        RAISE NOTICE 'Coluna campaign_db_id adicionada à tabela campaign_insights';
+    END IF;
+
+    -- Atualizar campaign_db_id com base no campaign_id
+    EXECUTE 'UPDATE campaign_insights ci 
+             SET campaign_db_id = c.id 
+             FROM campaigns c 
+             WHERE CAST(ci.campaign_id AS VARCHAR) = CAST(c.campaign_id AS VARCHAR) 
+             AND ci.campaign_db_id IS NULL';
+    
+    -- Atualizar account_id com base no campaign_db_id
+    EXECUTE 'UPDATE campaign_insights ci 
+             SET account_id = c.account_id 
+             FROM campaigns c 
+             WHERE ci.campaign_db_id = c.id 
+             AND (ci.account_id IS NULL OR ci.account_id = '''')';
+    
+    -- Adicionar foreign key se não existir
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_type = 'FOREIGN KEY' 
+        AND table_name = 'campaign_insights'
+        AND constraint_name = 'campaign_insights_campaign_db_id_fkey'
+    ) THEN
+        ALTER TABLE campaign_insights 
+        ADD CONSTRAINT campaign_insights_campaign_db_id_fkey
+        FOREIGN KEY (campaign_db_id) REFERENCES campaigns(id) ON DELETE CASCADE;
+        RAISE NOTICE 'Foreign key adicionada na coluna campaign_db_id';
+    END IF;
+END
+$$;
+
+-- Garantir que existam os índices necessários para campaign_insights
+DO $$
+BEGIN
+    -- Remover índices antigos se existirem e recriar
+    DROP INDEX IF EXISTS idx_campaign_insights_campaign_id;
+    DROP INDEX IF EXISTS idx_campaign_insights_date;
+    DROP INDEX IF EXISTS idx_campaign_insights_date_start;
+    DROP INDEX IF EXISTS idx_campaign_insights_date_stop;
+    DROP INDEX IF EXISTS idx_campaign_insights_date_range;
+    DROP INDEX IF EXISTS idx_campaign_insights_campaign_db_id;
+    
+    -- Criar índices
+    CREATE INDEX idx_campaign_insights_campaign_id ON campaign_insights(campaign_id);
+    
+    -- Adicionar campaign_db_id se existir
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'campaign_insights' 
+        AND column_name = 'campaign_db_id'
+    ) THEN
+        CREATE INDEX idx_campaign_insights_campaign_db_id ON campaign_insights(campaign_db_id);
+    END IF;
+    
+    -- Tentar criar índice date apenas se a coluna existir
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'campaign_insights' 
+        AND column_name = 'date'
+    ) THEN
+        CREATE INDEX idx_campaign_insights_date ON campaign_insights(date);
+    END IF;
+    
+    -- Tentar criar índices para date_start/date_stop apenas se as colunas existirem
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'campaign_insights' 
+        AND column_name = 'date_start'
+    ) THEN
+        CREATE INDEX idx_campaign_insights_date_start ON campaign_insights(date_start);
+        
+        -- Verificar se date_stop também existe para criar índice composto
+        IF EXISTS (
+            SELECT 1 
+            FROM information_schema.columns 
+            WHERE table_name = 'campaign_insights' 
+            AND column_name = 'date_stop'
+        ) THEN
+            CREATE INDEX idx_campaign_insights_date_range ON campaign_insights(date_start, date_stop);
+        END IF;
+    END IF;
+    
+    RAISE NOTICE 'Índices criados ou recriados na tabela campaign_insights';
+END
+$$;
 
 -- Criando user_integrations
 CREATE TABLE IF NOT EXISTS user_integrations (

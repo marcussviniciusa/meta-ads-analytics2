@@ -28,8 +28,8 @@ class ReportController {
       
       // Get insights
       const insights = await this.metaService.getCampaignInsights(userId, campaignId, {
-        start: startDate,
-        end: endDate
+        startDate: startDate,
+        endDate: endDate
       });
       
       res.status(200).json(insights);
@@ -58,9 +58,11 @@ class ReportController {
       const campaigns = await this.metaService.getCampaigns(userId, accountId);
       
       const dateRange = {
-        start: startDate,
-        end: endDate
+        startDate: startDate,
+        endDate: endDate
       };
+      
+      console.log(`[ReportController] Obtendo visão geral da conta ${accountId} no período: ${startDate} até ${endDate}`);
       
       // Get insights for all campaigns
       const insightsPromises = campaigns.map(campaign => 
